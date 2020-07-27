@@ -9,7 +9,6 @@ package gmf
 
 #include <stdlib.h>
 #include "libavformat/avformat.h"
-#include "libavfilter/avfilter.h"
 #include "libavdevice/avdevice.h"
 #include "libavutil/opt.h"
 
@@ -92,9 +91,7 @@ type FmtCtx struct {
 }
 
 func init() {
-	C.av_register_all()
 	C.avformat_network_init()
-	C.avfilter_register_all()
 	C.avdevice_register_all()
 }
 
