@@ -115,6 +115,7 @@ import "C"
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"syscall"
 	"unsafe"
 )
@@ -322,6 +323,14 @@ func (cc *CodecCtx) Profile() int {
 
 func (cc *CodecCtx) IsOpen() bool {
 	return (int(C.avcodec_is_open(cc.avCodecCtx)) > 0)
+}
+
+func (cc *CodecCtx) WithCuda() bool {
+	if cc.codec == nil {
+		panic("codec not init")
+	}
+
+	return strings.HasSuffix(cc.codec.Name(), "_cuvid")
 }
 
 func (cc *CodecCtx) SetProfile(profile int) *CodecCtx {

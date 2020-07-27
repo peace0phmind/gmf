@@ -12,6 +12,7 @@ import "C"
 
 import (
 	"fmt"
+	"log"
 )
 
 type Stream struct {
@@ -48,15 +49,33 @@ func (s *Stream) SetCodecFlags() {
 }
 
 func (s *Stream) CodecCtx() *CodecCtx {
+	return s.CodecCtxWithCuda(false)
+}
+
+func (s *Stream) CodecCtxWithCuda(withCuda bool) *CodecCtx {
 	// Supposed that output context is set and opened by user
 	if s.IsCodecCtxSet() {
 		return s.cc
 	}
 
+	var (
+		c   *Codec
+		err error
+	)
+
 	// Open input codec context
-	c, err := FindDecoder(int(s.avStream.codec.codec_id))
+	c, err = FindDecoder(int(s.avStream.codec.codec_id))
 	if err != nil {
 		return nil
+	}
+
+	if withCuda {
+		cudac, err := FindDecoder(c.Name() + "_cuvid")
+		if err != nil {
+			log.Fatal("Try to find cuda codec error, use origin codec")
+		} else {
+			c = cudac
+		}
 	}
 
 	if s.cc = NewCodecCtx(c); s.cc == nil {
