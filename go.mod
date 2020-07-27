@@ -1,3 +1,3 @@
-module github.com/3d0c/gmf
+module github.com/peace0phmind/gmf
 
 go 1.12
