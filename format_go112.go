@@ -9,7 +9,8 @@ package gmf
 
 #include <stdlib.h>
 #include "libavformat/avformat.h"
-#include <libavdevice/avdevice.h>
+#include "libavfilter/avfilter.h"
+#include "libavdevice/avdevice.h"
 #include "libavutil/opt.h"
 
 static AVStream* gmf_get_stream(AVFormatContext *ctx, int idx) {
@@ -91,7 +92,9 @@ type FmtCtx struct {
 }
 
 func init() {
+	C.av_register_all()
 	C.avformat_network_init()
+	C.avfilter_register_all()
 	C.avdevice_register_all()
 }
 
@@ -99,13 +102,16 @@ func LogSetLevel(level int) {
 	C.av_log_set_level(C.int(level))
 }
 
-// @todo return error if avCtx is null
 // @todo start_time is it needed?
-func NewCtx(options ...[]Option) *FmtCtx {
+func NewCtx(options ...[]Option) (*FmtCtx, error) {
 	ctx := &FmtCtx{
 		avCtx:    C.avformat_alloc_context(),
 		streams:  make(map[int]*Stream),
 		customPb: false,
+	}
+
+	if ctx.avCtx == nil {
+		return nil, errors.New(fmt.Sprintf("unable to allocate context"))
 	}
 
 	ctx.avCtx.start_time = 0
@@ -116,7 +122,7 @@ func NewCtx(options ...[]Option) *FmtCtx {
 		}
 	}
 
-	return ctx
+	return ctx, nil
 }
 
 func NewOutputCtx(i interface{}, options ...[]Option) (*FmtCtx, error) {
@@ -182,10 +188,10 @@ func NewOutputCtxWithFormatName(filename, format string) (*FmtCtx, error) {
 
 // Just a helper for NewCtx().OpenInput()
 func NewInputCtx(filename string) (*FmtCtx, error) {
-	ctx := NewCtx()
+	ctx, err := NewCtx()
 
-	if ctx.avCtx == nil {
-		return nil, errors.New(fmt.Sprintf("unable to allocate context"))
+	if err == nil {
+		return nil, err
 	}
 
 	if err := ctx.OpenInput(filename); err != nil {
@@ -196,11 +202,12 @@ func NewInputCtx(filename string) (*FmtCtx, error) {
 }
 
 func NewInputCtxWithFormatName(filename, format string) (*FmtCtx, error) {
-	ctx := NewCtx()
+	ctx, err := NewCtx()
 
-	if ctx.avCtx == nil {
-		return nil, errors.New(fmt.Sprintf("unable to allocate context"))
+	if err == nil {
+		return nil, err
 	}
+
 	if err := ctx.SetInputFormat(format); err != nil {
 		return nil, err
 	}
