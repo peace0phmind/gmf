@@ -25,13 +25,12 @@ func assert(i interface{}, err error) interface{} {
 }
 
 func TestCtxCreation(t *testing.T) {
-	ctx := NewCtx()
+	ctx, err := NewCtx()
+	defer ctx.Free()
 
-	if ctx.avCtx == nil {
-		t.Fatal("AVContext is not initialized")
+	if err != nil {
+		t.Fatal(err)
 	}
-
-	Release(ctx)
 }
 
 func TestCtxInput(t *testing.T) {
@@ -40,7 +39,7 @@ func TestCtxInput(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	inputCtx.CloseInputAndRelease()
+	inputCtx.Free()
 }
 
 func TestCtxOutput(t *testing.T) {
@@ -58,7 +57,7 @@ func TestCtxOutput(t *testing.T) {
 				t.Error("Unexpected error:", err)
 			}
 		} else {
-			outuptCtx.CloseOutputAndRelease()
+			outuptCtx.Free()
 		}
 	}
 
@@ -66,19 +65,17 @@ func TestCtxOutput(t *testing.T) {
 }
 
 func TestCtxCloseEmpty(t *testing.T) {
-	ctx := NewCtx()
+	ctx, _ := NewCtx()
 
-	ctx.CloseInputAndRelease()
-	ctx.CloseOutputAndRelease()
-	Release(ctx)
+	ctx.Free()
 }
 
 func TestNewStream(t *testing.T) {
-	ctx := NewCtx()
-	if ctx.avCtx == nil {
-		t.Fatal("AVContext is not initialized")
+	ctx, err := NewCtx()
+	defer ctx.Free()
+	if err != nil {
+		t.Fatal(err)
 	}
-	defer Release(ctx)
 
 	c := assert(FindEncoder(AV_CODEC_ID_MPEG1VIDEO)).(*Codec)
 
@@ -97,10 +94,11 @@ func TestNewStream(t *testing.T) {
 
 func TestWriteHeader(t *testing.T) {
 	outputCtx, err := NewOutputCtx(outputSampleFilename)
+	defer outputCtx.Free()
+
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer Release(outputCtx)
 
 	// write_header needs a valid stream with code context initialized
 	c := assert(FindEncoder(AV_CODEC_ID_MPEG1VIDEO)).(*Codec)
@@ -123,11 +121,11 @@ func TestWriteHeader(t *testing.T) {
 
 func TestPacketsIterator(t *testing.T) {
 	inputCtx, err := NewInputCtx(inputSampleFilename)
+	defer inputCtx.Free()
+
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	defer inputCtx.CloseInputAndRelease()
 
 	for packet := range inputCtx.GetNewPackets() {
 		if packet.Size() <= 0 {
@@ -135,7 +133,7 @@ func TestPacketsIterator(t *testing.T) {
 		} else {
 			log.Printf("One packet has been read. size: %v, pts: %v\n", packet.Size(), packet.Pts())
 		}
-		Release(packet)
+		packet.Free()
 
 		break
 	}
@@ -147,7 +145,7 @@ func TestGetNextPacket(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	defer inputCtx.CloseInputAndRelease()
+	defer inputCtx.Free()
 
 	packet, _ := inputCtx.GetNextPacket()
 	if packet.Size() <= 0 {
@@ -155,7 +153,7 @@ func TestGetNextPacket(t *testing.T) {
 	} else {
 		log.Printf("One packet has been read. size: %v, pts: %v\n", packet.Size(), packet.Pts())
 	}
-	Release(packet)
+	packet.Free()
 }
 
 var section *io.SectionReader
@@ -190,7 +188,12 @@ func customReader() ([]byte, int) {
 }
 
 func TestAVIOContext(t *testing.T) {
-	ictx := NewCtx()
+	ictx, err := NewCtx()
+	defer ictx.Free()
+
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	if err := ictx.SetInputFormat("mov"); err != nil {
 		t.Fatal(err)
@@ -206,16 +209,17 @@ func TestAVIOContext(t *testing.T) {
 
 	for p := range ictx.GetNewPackets() {
 		_ = p
-		Release(p)
+		p.Free()
 	}
-
-	ictx.CloseInputAndRelease()
-
 }
 
 func ExampleNewAVIOContext() {
-	ctx := NewCtx()
-	defer Release(ctx)
+	ctx, err := NewCtx()
+	defer ctx.Free()
+
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	// In this example, we're using custom reader implementation,
 	// so we should specify format manually.
@@ -238,6 +242,6 @@ func ExampleNewAVIOContext() {
 
 	for p := range ctx.GetNewPackets() {
 		_ = p
-		Release(p)
+		p.Free()
 	}
 }
