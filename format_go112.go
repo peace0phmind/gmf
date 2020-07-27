@@ -53,6 +53,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"syscall"
 	"time"
 	"unsafe"
@@ -100,7 +101,7 @@ func LogSetLevel(level int) {
 }
 
 // @todo start_time is it needed?
-func NewCtx(options ...[]Option) (*FmtCtx, error) {
+func NewCtx(options ...*Option) (*FmtCtx, error) {
 	ctx := &FmtCtx{
 		avCtx:    C.avformat_alloc_context(),
 		streams:  make(map[int]*Stream),
@@ -113,10 +114,8 @@ func NewCtx(options ...[]Option) (*FmtCtx, error) {
 
 	ctx.avCtx.start_time = 0
 
-	if len(options) == 1 {
-		for _, option := range options[0] {
-			option.Set(ctx.avCtx)
-		}
+	for _, option := range options {
+		option.Set(ctx.avCtx)
 	}
 
 	return ctx, nil
@@ -187,7 +186,7 @@ func NewOutputCtxWithFormatName(filename, format string) (*FmtCtx, error) {
 func NewInputCtx(filename string) (*FmtCtx, error) {
 	ctx, err := NewCtx()
 
-	if err == nil {
+	if err != nil {
 		return nil, err
 	}
 
@@ -198,10 +197,38 @@ func NewInputCtx(filename string) (*FmtCtx, error) {
 	return ctx, nil
 }
 
+func NewInputCtxWithOption(filename string, options ...*Option) (*FmtCtx, error) {
+	ctx, err := NewCtx(options...)
+
+	if err != nil {
+		return nil, err
+	}
+
+	var inputOption *Option = nil
+
+	for _, option := range options {
+		if strings.Compare(option.Key, "input_options") == 0 {
+			inputOption = option
+		}
+	}
+
+	if inputOption == nil {
+		if err := ctx.OpenInput(filename); err != nil {
+			return nil, err
+		}
+	} else {
+		if err := ctx.OpenInputWithOption(filename, inputOption); err != nil {
+			return nil, err
+		}
+	}
+
+	return ctx, nil
+}
+
 func NewInputCtxWithFormatName(filename, format string) (*FmtCtx, error) {
 	ctx, err := NewCtx()
 
-	if err == nil {
+	if err != nil {
 		return nil, err
 	}
 
