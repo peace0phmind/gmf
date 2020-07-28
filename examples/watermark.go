@@ -8,7 +8,7 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/3d0c/gmf"
+	"github.com/peace0phmind/gmf"
 )
 
 type arrayFlags []string
@@ -194,6 +194,7 @@ func main() {
 
 	filter, err := gmf.NewFilter("overlay=10:main_h-overlay_h-10", srcStreams, ost, options)
 	defer filter.Release()
+
 	if err != nil {
 		log.Fatalf("%s\n", err)
 	}

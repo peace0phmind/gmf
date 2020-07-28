@@ -21,7 +21,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/3d0c/gmf"
+	"github.com/peace0phmind/gmf"
 )
 
 var fileCount int = 0

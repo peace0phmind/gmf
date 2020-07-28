@@ -21,7 +21,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/3d0c/gmf"
+	"github.com/peace0phmind/gmf"
 )
 
 var (

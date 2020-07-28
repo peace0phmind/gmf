@@ -7,7 +7,7 @@ import (
 	"os"
 	"runtime/debug"
 
-	. "github.com/3d0c/gmf"
+	. "github.com/peace0phmind/gmf"
 )
 
 func fatal(err error) {
