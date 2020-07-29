@@ -21,9 +21,23 @@ import (
 )
 
 const (
-	AV_BUFFERSINK_FLAG_PEEK       = 1
-	AV_BUFFERSINK_FLAG_NO_REQUEST = 2
-	AV_BUFFERSRC_FLAG_PUSH        = 4
+	/**
+	 * Do not check for format changes.
+	 */
+	AV_BUFFERSRC_FLAG_NO_CHECK_FORMAT = C.AV_BUFFERSRC_FLAG_NO_CHECK_FORMAT
+	/**
+	 * Immediately push the frame to the output.
+	 */
+	AV_BUFFERSRC_FLAG_PUSH = C.AV_BUFFERSRC_FLAG_PUSH
+	/**
+	 * Keep a reference to the frame.
+	 * If the frame if reference-counted, create a new reference; otherwise
+	 * copy the frame data.
+	 */
+	AV_BUFFERSRC_FLAG_KEEP_REF = C.AV_BUFFERSRC_FLAG_KEEP_REF
+
+	AV_BUFFERSINK_FLAG_PEEK       = C.AV_BUFFERSINK_FLAG_PEEK
+	AV_BUFFERSINK_FLAG_NO_REQUEST = C.AV_BUFFERSINK_FLAG_NO_REQUEST
 )
 
 type Filter struct {
@@ -43,8 +57,6 @@ func NewFilter(desc string, srcStreams []*Stream, ost *Stream, options []*Option
 		args    string
 		inputs  *C.AVFilterInOut
 		outputs *C.AVFilterInOut
-		curr    *C.AVFilterInOut
-		last    *C.AVFilterContext
 	)
 
 	cdesc := C.CString(desc)
@@ -61,22 +73,23 @@ func NewFilter(desc string, srcStreams []*Stream, ost *Stream, options []*Option
 	defer C.avfilter_inout_free(&inputs)
 	defer C.avfilter_inout_free(&outputs)
 
-	for curr = inputs; curr != nil; curr = curr.next {
+	for curr := inputs; curr != nil; curr = curr.next {
 		if len(srcStreams) < i {
 			return nil, fmt.Errorf("not enough of source streams")
 		}
 
 		src := srcStreams[i]
 
-		args = fmt.Sprintf("video_size=%s:pix_fmt=%d:time_base=%s:pixel_aspect=%s:sws_param=flags=%d:frame_rate=%s", src.CodecCtx().GetVideoSize(), src.CodecCtx().PixFmt(), src.TimeBase().AVR(), src.CodecCtx().GetAspectRation().AVR(), SWS_BILINEAR, src.GetRFrameRate().AVR().String())
+		args = fmt.Sprintf("video_size=%s:pix_fmt=%d:time_base=%s:pixel_aspect=%s:frame_rate=%s", src.CodecCtx().GetVideoSize(), src.CodecCtx().PixFmt(), src.TimeBase().AVR(), src.CodecCtx().GetAspectRation().AVR(), src.GetRFrameRate().AVR())
 
-		if last, ret = f.create("buffer", fmt.Sprintf("in_%d", i), args); ret < 0 {
+		var bufferCtx *C.AVFilterContext
+		if bufferCtx, ret = f.create("buffer", fmt.Sprintf("in_%d", i), args); ret < 0 {
 			return f, fmt.Errorf("error creating input buffer - %s", AvError(ret))
 		}
 
-		f.bufferCtx = append(f.bufferCtx, last)
+		f.bufferCtx = append(f.bufferCtx, bufferCtx)
 
-		if ret = int(C.avfilter_link(last, 0, curr.filter_ctx, C.uint(i))); ret < 0 {
+		if ret = int(C.avfilter_link(bufferCtx, 0, curr.filter_ctx, C.uint(i))); ret < 0 {
 			return f, fmt.Errorf("error linking filters - %s", AvError(ret))
 		}
 
@@ -88,15 +101,16 @@ func NewFilter(desc string, srcStreams []*Stream, ost *Stream, options []*Option
 	}
 
 	// XXX hardcoded PIXFMT!
-	if last, ret = f.create("format", "format", "yuv420p"); ret < 0 {
+	var formatCtx *C.AVFilterContext
+	if formatCtx, ret = f.create("format", "format", "yuv420p"); ret < 0 {
 		return f, fmt.Errorf("error creating format filter - %s", AvError(ret))
 	}
 
-	if ret = int(C.avfilter_link(outputs.filter_ctx, 0, last, 0)); ret < 0 {
+	if ret = int(C.avfilter_link(outputs.filter_ctx, 0, formatCtx, 0)); ret < 0 {
 		return f, fmt.Errorf("error linking output filters - %s", AvError(ret))
 	}
 
-	if ret = int(C.avfilter_link(last, 0, f.sinkCtx, 0)); ret < 0 {
+	if ret = int(C.avfilter_link(formatCtx, 0, f.sinkCtx, 0)); ret < 0 {
 		return f, fmt.Errorf("error linking output filters - %s", AvError(ret))
 	}
 
