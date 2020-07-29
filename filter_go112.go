@@ -43,6 +43,7 @@ const (
 type Filter struct {
 	bufferCtx   []*C.AVFilterContext
 	sinkCtx     *C.AVFilterContext
+	formatCtx   *C.AVFilterContext
 	filterGraph *C.AVFilterGraph
 }
 
@@ -101,16 +102,15 @@ func NewFilter(desc string, srcStreams []*Stream, ost *Stream, options []*Option
 	}
 
 	// XXX hardcoded PIXFMT!
-	var formatCtx *C.AVFilterContext
-	if formatCtx, ret = f.create("format", "format", "yuv420p"); ret < 0 {
+	if f.formatCtx, ret = f.create("format", "format", "yuv420p"); ret < 0 {
 		return f, fmt.Errorf("error creating format filter - %s", AvError(ret))
 	}
 
-	if ret = int(C.avfilter_link(outputs.filter_ctx, 0, formatCtx, 0)); ret < 0 {
+	if ret = int(C.avfilter_link(outputs.filter_ctx, 0, f.formatCtx, 0)); ret < 0 {
 		return f, fmt.Errorf("error linking output filters - %s", AvError(ret))
 	}
 
-	if ret = int(C.avfilter_link(formatCtx, 0, f.sinkCtx, 0)); ret < 0 {
+	if ret = int(C.avfilter_link(f.formatCtx, 0, f.sinkCtx, 0)); ret < 0 {
 		return f, fmt.Errorf("error linking output filters - %s", AvError(ret))
 	}
 
@@ -221,6 +221,10 @@ func (f *Filter) Release() {
 
 	for i, _ := range f.bufferCtx {
 		C.avfilter_free(f.bufferCtx[i])
+	}
+
+	if f.formatCtx != nil {
+		C.avfilter_free(f.formatCtx)
 	}
 
 	C.avfilter_graph_free(&f.filterGraph)
