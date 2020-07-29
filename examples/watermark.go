@@ -116,6 +116,7 @@ func main() {
 	)
 
 	log.SetFlags(log.Lshortfile)
+	//gmf.LogSetLevel(gmf.AV_LOG_DEBUG)
 
 	flag.Var(&src, "src", "source files, e.g.: -src=bbb.mp4 -src=image.png")
 	flag.StringVar(&dst, "dst", "", "destination file, e.g. -dst=result.mp4")
