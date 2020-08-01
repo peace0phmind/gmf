@@ -92,10 +92,10 @@ func main() {
 	}
 
 	inputCtx := assert(NewInputCtx(srcFileName)).(*FmtCtx)
-	defer inputCtx.CloseInputAndRelease()
+	defer inputCtx.Free()
 
 	outputCtx := assert(NewOutputCtx(dstFileName)).(*FmtCtx)
-	defer outputCtx.CloseOutputAndRelease()
+	defer outputCtx.Free()
 
 	srcVideoStream, err := inputCtx.GetBestStream(AVMEDIA_TYPE_VIDEO)
 	if err != nil {

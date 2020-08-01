@@ -40,7 +40,7 @@ func main() {
 	)
 
 	log.SetFlags(log.Lshortfile)
-	//gmf.LogSetLevel(gmf.AV_LOG_DEBUG)
+	gmf.LogSetLevel(gmf.AV_LOG_DEBUG)
 	os.MkdirAll("./tmp", 0755)
 
 	flag.StringVar(&src, "src", "bbb.mp4", "source files, e.g.: -src=bbb.mp4 -src=image.png")
@@ -86,7 +86,7 @@ func main() {
 		pkt *gmf.Packet
 	)
 
-	filter, err := gmf.NewFilter("fps=fps=1/5", []*gmf.Stream{srcVideoStream}, nil, nil)
+	filter, err := gmf.NewFilter("fps=fps=1/5;", []*gmf.Stream{srcVideoStream}, nil, nil)
 	defer filter.Release()
 	if err != nil {
 		log.Fatalf("%s\n", err)

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"log"
 	"os"
@@ -24,26 +25,29 @@ func assert(i interface{}, err error) interface{} {
 
 func main() {
 	var srcFileName, dstFileName string
+	//LogSetLevel(AV_LOG_DEBUG)
 
 	log.SetFlags(log.Lshortfile | log.Ldate | log.Ltime)
 
-	if len(os.Args) != 3 {
+	flag.StringVar(&srcFileName, "src", "rtsp://admin:Zyx123456@192.168.1.10", "source file")
+	flag.StringVar(&dstFileName, "dst", "http://121.36.218.177:9081/uVMChBVGg1", "destination file")
+	flag.Parse()
+
+	if len(srcFileName) == 0 || dstFileName == "" {
 		fmt.Println("usage:", os.Args[0], " input output")
 		fmt.Println("API example program to remux a media file with libavformat and libavcodec.")
 		fmt.Println("The output format is guessed according to the file extension.")
-
 		os.Exit(0)
-	} else {
-		srcFileName = os.Args[1]
-		dstFileName = os.Args[2]
 	}
 
-	inputCtx := assert(NewInputCtx(srcFileName)).(*FmtCtx)
-	defer inputCtx.CloseInputAndRelease()
+	inputOptionsDict := NewDict([]Pair{{Key: "rtsp_transport", Val: "tcp"}, {Key: "stimeout", Val: "10000000"}})
+	inputOption := &Option{Key: "input_options", Val: inputOptionsDict}
+	inputCtx := assert(NewInputCtxWithOption(srcFileName, inputOption)).(*FmtCtx)
+	defer inputCtx.Free()
 	inputCtx.Dump()
 
 	outputCtx := assert(NewOutputCtxWithFormatName(dstFileName, "mpegts")).(*FmtCtx)
-	defer outputCtx.CloseOutputAndRelease()
+	defer outputCtx.Free()
 
 	fmt.Println("===================================")
 
@@ -71,7 +75,7 @@ func main() {
 		}
 
 		first = true
-		Release(packet)
+		packet.Free()
 	}
 
 }
