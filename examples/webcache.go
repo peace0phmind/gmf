@@ -170,6 +170,9 @@ func main() {
 		}
 
 		ff, err = ist.CodecCtx().Decode(pkt)
+		if err != nil {
+			log.Fatal(err)
+		}
 		//if ret < 0 && gmf.AvErrno(ret) == syscall.EAGAIN {
 		//	continue
 		//} else if ret == gmf.AVERROR_EOF {
