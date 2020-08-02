@@ -23,11 +23,11 @@ func assert(i interface{}, err error) interface{} {
 	return i
 }
 
-func addStream(codecName string, oc *gmf.FmtCtx, ist *gmf.Stream) (int, int) {
+func addStream(codecNameOrId interface{}, oc *gmf.FmtCtx, ist *gmf.Stream) (int, int) {
 	var cc *gmf.CodecCtx
 	var ost *gmf.Stream
 
-	codec := assert(gmf.FindEncoder(codecName)).(*gmf.Codec)
+	codec := assert(gmf.FindEncoder(codecNameOrId)).(*gmf.Codec)
 
 	if cc = gmf.NewCodecCtx(codec); cc == nil {
 		log.Fatal(errors.New("unable to create codec context"))
@@ -42,12 +42,11 @@ func addStream(codecName string, oc *gmf.FmtCtx, ist *gmf.Stream) (int, int) {
 	}
 
 	if cc.Type() == gmf.AVMEDIA_TYPE_AUDIO {
-		cc.SetSampleFmt(ist.CodecCtx().SampleFmt())
-		cc.SetSampleRate(ist.CodecCtx().SampleRate())
+		//cc.SetSampleFmt(ist.CodecCtx().SampleFmt())
+		//cc.SetSampleRate(ist.CodecCtx().SampleRate())
 		cc.SetChannels(ist.CodecCtx().Channels())
 		cc.SelectChannelLayout()
 		cc.SelectSampleRate()
-
 	}
 
 	if cc.Type() == gmf.AVMEDIA_TYPE_VIDEO {
@@ -92,7 +91,8 @@ func main() {
 
 	flag.StringVar(&src, "src", "rtsp://admin:Zyx123456@192.168.1.10", "source file")
 	//flag.StringVar(&dst, "dst", "http://121.36.218.177:9081/uVMChBVGg1", "destination file")
-	flag.StringVar(&dst, "dst", "test.png", "destination file")
+	flag.StringVar(&dst, "dst", "test.mp4", "destination file")
+	//flag.StringVar(&dst, "dst", "test.mp4", "destination file")
 	flag.Parse()
 
 	if len(src) == 0 || dst == "" {
@@ -108,24 +108,27 @@ func main() {
 	defer inputCtx.Free()
 	inputCtx.Dump()
 
-	outputCtx, err := gmf.NewOutputCtx(dst)
+	outputCtx, err := gmf.NewOutputCtxWithFormatName(dst, "mpegts")
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer outputCtx.Free()
 	outputCtx.Dump()
 
+	for i := 0; i < inputCtx.StreamsCnt(); i++ {
+		stream, err := inputCtx.GetStream(i)
+		if err != nil {
+			log.Fatal(err)
+		}
 
-	var iVideoStream *gmf.Stream
-
-	iVideoStream, err = inputCtx.GetBestStream(gmf.AVMEDIA_TYPE_VIDEO)
-	if err != nil {
-		log.Fatal(err)
+		if stream.IsVideo() {
+			addStream("mpeg1video", outputCtx, stream)
+			log.Printf("stream %s, %s\n", stream.CodecCtx().Codec().LongName(), stream.CodecCtx().GetVideoSize())
+		} else {
+			typ := assert(outputCtx.GuessEncodeCodecId(stream.Type())).(int)
+			addStream(typ, outputCtx, stream)
+		}
 	}
-	iVideoStream.Free()
-
-	addStream("mpeg1video", outputCtx, iVideoStream)
-	log.Printf("stream %s, %s\n", iVideoStream.CodecCtx().Codec().LongName(), iVideoStream.CodecCtx().GetVideoSize())
 
 	//filter, err := gmf.NewFilter("scale=size=1024x768", []*gmf.Stream{iVideoStream}, nil, nil)
 	//defer filter.Release()
@@ -164,10 +167,6 @@ func main() {
 		ist, err = inputCtx.GetStream(pkt.StreamIndex())
 		if err != nil {
 			log.Fatalf("%s\n", err)
-		}
-
-		if !ist.IsVideo() {
-			continue
 		}
 
 		ff, err = ist.CodecCtx().Decode(pkt)
@@ -221,6 +220,7 @@ func main() {
 			//gmf.RescaleTs(op, ost.CodecCtx().TimeBase(), ost.TimeBase())
 			op.SetStreamIndex(ost.Index())
 
+			op.Data()
 			if err = outputCtx.WritePacket(op); err != nil {
 				break
 			}

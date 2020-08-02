@@ -472,6 +472,14 @@ func (this *FmtCtx) FindStreamInfo() error {
 	return nil
 }
 
+func (this *FmtCtx) GuessEncodeCodecId(typ int32) (int, error) {
+	if this.ofmt == nil {
+		return AV_CODEC_ID_NONE, errors.New("Only output file format can guess.")
+	}
+
+	return int(C.av_guess_codec(this.avCtx.oformat, nil, this.avCtx.url, nil, typ)), nil
+}
+
 func (this *FmtCtx) SetInputFormat(name string) error {
 	cname := C.CString(name)
 	defer C.free(unsafe.Pointer(cname))
