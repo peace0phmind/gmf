@@ -7,6 +7,8 @@ import (
 	"io"
 	"log"
 	"runtime/debug"
+	"syscall"
+
 	//"syscall"
 )
 
@@ -50,11 +52,11 @@ func addStream(codecNameOrId interface{}, oc *gmf.FmtCtx, ist *gmf.Stream) (int,
 	}
 
 	if cc.Type() == gmf.AVMEDIA_TYPE_VIDEO {
-		cc.SetTimeBase(gmf.AVR{1, 25})
-		cc.SetProfile(gmf.FF_PROFILE_MPEG4_SIMPLE)
-		cc.SetDimension(ist.CodecCtx().Width(), ist.CodecCtx().Height())
+		//cc.SetTimeBase(gmf.AVR{1, 25})
+		//cc.SetProfile(gmf.FF_PROFILE_MPEG4_SIMPLE)
+		cc.SetDimension(1024, 768)
 		//cc.SetPixFmt(ist.CodecCtx().PixFmt())
-		cc.SetPixFmt(gmf.AV_PIX_FMT_YUV420P)
+		//cc.SetPixFmt(gmf.AV_PIX_FMT_YUV420P)
 	}
 
 	if err := cc.Open(nil); err != nil {
@@ -130,9 +132,9 @@ func main() {
 		}
 	}
 
-	//filter, err := gmf.NewFilter("scale=size=1024x768", []*gmf.Stream{iVideoStream}, nil, nil)
-	//defer filter.Release()
-	//filter.Dump()
+	fg, err := gmf.NewVideoGraph("", []*gmf.Stream{assert(inputCtx.GetBestStream(gmf.AVMEDIA_TYPE_VIDEO)).(*gmf.Stream)}, nil, nil)
+	defer fg.Release()
+	fg.Dump()
 
 	if err != nil {
 		log.Fatalf("%s\n", err)
@@ -142,15 +144,15 @@ func main() {
 		log.Fatalf("error writing header - %s\n", err)
 	}
 
-	//init := false
+	init := false
 
 	var (
-		//ret   int = 0
-		//frame *gmf.Frame
-		ff  []*gmf.Frame
-		pkt *gmf.Packet
-		ist *gmf.Stream
-		ost *gmf.Stream
+		ret   int = 0
+		frame *gmf.Frame
+		ff    []*gmf.Frame
+		pkt   *gmf.Packet
+		ist   *gmf.Stream
+		ost   *gmf.Stream
 	)
 
 	for {
@@ -159,8 +161,8 @@ func main() {
 			log.Fatalf("error getting next packet - %s", err)
 		} else if err != nil && pkt == nil {
 			log.Printf("EOF input, closing\n")
-			//filter.RequestOldest()
-			//filter.Close(0)
+			fg.RequestOldest()
+			fg.Close(0)
 			continue
 		}
 
@@ -169,38 +171,36 @@ func main() {
 			log.Fatalf("%s\n", err)
 		}
 
-		ff, err = ist.CodecCtx().Decode(pkt)
-		if err != nil {
-			log.Fatal(err)
+		frame, ret = ist.CodecCtx().Decode2(pkt)
+		if ret < 0 && gmf.AvErrno(ret) == syscall.EAGAIN {
+			continue
+		} else if ret == gmf.AVERROR_EOF {
+			log.Fatalf("EOF in Decode2, handle it\n")
+		} else if ret < 0 {
+			log.Fatalf("Unexpected error - %s\n", gmf.AvError(ret))
 		}
-		//if ret < 0 && gmf.AvErrno(ret) == syscall.EAGAIN {
-		//	continue
-		//} else if ret == gmf.AVERROR_EOF {
-		//	log.Fatalf("EOF in Decode2, handle it\n")
-		//} else if ret < 0 {
-		//	log.Fatalf("Unexpected error - %s\n", gmf.AvError(ret))
-		//}
 
 		//frame.SetPts(ist.Pts)
 		//ist.Pts++
 
-		//if frame != nil && !init {
-		//	if err := filter.AddFrame(frame, 0, 0); err != nil {
-		//		log.Fatalf("%s\n", err)
-		//	}
-		//	init = true
-		//	continue
-		//}
+		if frame != nil && !init {
+			if err := fg.AddFrame(frame, 0, 0); err != nil {
+				log.Fatalf("%s\n", err)
+			}
+			init = true
+			frame.Free()
+			continue
+		}
 
-		//if err := filter.AddFrame(frame, 0, 4); err != nil {
-		//	log.Fatalf("%s\n", err)
-		//}
-		//frame.Free()
-		//
-		//if ff, err = filter.GetFrame(); err != nil && len(ff) == 0 {
-		//	log.Printf("GetFrame() returned '%s', continue\n", err)
-		//	continue
-		//}
+		if err := fg.AddFrame(frame, 0, 4); err != nil {
+			log.Fatalf("%s\n", err)
+		}
+		frame.Free()
+
+		if ff, err = fg.GetFrame(); err != nil && len(ff) == 0 {
+			//log.Printf("GetFrame() returned '%s', continue\n", err)
+			continue
+		}
 
 		if len(ff) == 0 {
 			continue
@@ -227,7 +227,6 @@ func main() {
 
 			op.Free()
 		}
-
 	}
 
 	outputCtx.WriteTrailer()

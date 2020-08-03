@@ -16,7 +16,6 @@ import "C"
 
 import (
 	"fmt"
-	"strings"
 	"syscall"
 	"unsafe"
 )
@@ -212,10 +211,6 @@ func (f *Filter) RequestOldest() error {
 
 func (f *Filter) Dump() {
 	fmt.Println(C.GoString(C.avfilter_graph_dump(f.filterGraph, nil)))
-}
-
-func (f *Filter) isVideoFilter() bool {
-	return f.videoFilter
 }
 
 func (f *Filter) Release() {

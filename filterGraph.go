@@ -52,7 +52,7 @@ static char *gmf_choose_pix_fmts(AVCodec *enc)
 
         len = avio_close_dyn_buf(s, &ret);
         ret[len - 1] = 0;
-        return ret;
+        return (char*)ret;
     } else {
         return NULL;
 	}
@@ -62,8 +62,11 @@ static char *gmf_choose_pix_fmts(AVCodec *enc)
 import "C"
 
 import (
+	"errors"
 	"fmt"
+	"log"
 	"strings"
+	"syscall"
 	"unsafe"
 )
 
@@ -145,9 +148,12 @@ func (fg *FilterGraph) configureVideo(frame *Frame) error {
 		outputs *C.AVFilterInOut
 	)
 
+	cdesc := C.CString(fg.avFilters)
+	defer C.free(unsafe.Pointer(cdesc))
+
 	if ret = int(C.avfilter_graph_parse2(
 		fg.filterGraph,
-		fg.avFilters,
+		cdesc,
 		&inputs,
 		&outputs,
 	)); ret < 0 {
@@ -166,6 +172,10 @@ func (fg *FilterGraph) configureVideo(frame *Frame) error {
 	for cur := outputs; cur != nil; cur = cur.next {
 		fg.configVideoOutput(i, cur)
 		i++
+	}
+
+	if ret = int(C.avfilter_graph_config(fg.filterGraph, nil)); ret < 0 {
+		return fmt.Errorf("graph config error - %s", AvError(ret))
 	}
 
 	return nil
@@ -196,7 +206,7 @@ func (fg *FilterGraph) configVideoInput(frame *Frame, idx int, in *C.AVFilterInO
 
 	fg.inFilterCtxs = append(fg.inFilterCtxs, filterContext)
 
-	if ret = int(C.avfilter_link(filterContext, 0, in.filter_ctx, in.pad_idx)); ret < 0 {
+	if ret = int(C.avfilter_link(filterContext, 0, in.filter_ctx, C.uint(in.pad_idx))); ret < 0 {
 		return fmt.Errorf("error linking filters - %s", AvError(ret))
 	}
 
@@ -230,7 +240,7 @@ func (fg *FilterGraph) configVideoOutput(idx int, out *C.AVFilterInOut) error {
 		return fmt.Errorf("error creating filter 'scale' - %s", AvError(ret))
 	}
 
-	if ret = int(C.avfilter_link(lastFilterContext, padIdx, scaleContext, 0)); ret < 0 {
+	if ret = int(C.avfilter_link(lastFilterContext, C.uint(padIdx), scaleContext, 0)); ret < 0 {
 		return fmt.Errorf("error linking filters - %s", AvError(ret))
 	}
 
@@ -238,14 +248,14 @@ func (fg *FilterGraph) configVideoOutput(idx int, out *C.AVFilterInOut) error {
 	padIdx = 0
 
 	/****************************** format ******************************/
-	if pixName := C.gmf_choose_pix_fmts(occ.codec.avCodec); pixName != nil {
-		defer C.av_freep(unsafe.Pointer(pixName))
+	if pixFmtName := C.gmf_choose_pix_fmts(occ.codec.avCodec); pixFmtName != nil {
+		defer C.av_freep(unsafe.Pointer(&pixFmtName))
 
-		if formatContext, ret = fg.create("format", fmt.Sprintf("format_%d", idx), C.GoString(pixName)); ret < 0 {
+		if formatContext, ret = fg.create("format", fmt.Sprintf("format_%d", idx), C.GoString(pixFmtName)); ret < 0 {
 			return fmt.Errorf("error creating filter 'format' - %s", AvError(ret))
 		}
 
-		if ret = int(C.avfilter_link(lastFilterContext, padIdx, formatContext, 0)); ret < 0 {
+		if ret = int(C.avfilter_link(lastFilterContext, C.uint(padIdx), formatContext, 0)); ret < 0 {
 			return fmt.Errorf("error linking filters - %s", AvError(ret))
 		}
 
@@ -254,7 +264,7 @@ func (fg *FilterGraph) configVideoOutput(idx int, out *C.AVFilterInOut) error {
 	}
 
 	/****************************** link last to sink ******************************/
-	if ret = int(C.avfilter_link(lastFilterContext, padIdx, sinkContext, 0)); ret < 0 {
+	if ret = int(C.avfilter_link(lastFilterContext, C.uint(padIdx), sinkContext, 0)); ret < 0 {
 		return fmt.Errorf("error linking filters - %s", AvError(ret))
 	}
 
@@ -270,7 +280,7 @@ func (fg *FilterGraph) create(filter, name, args string) (*C.AVFilterContext, in
 	cfilter := C.CString(filter)
 	cname := C.CString(name)
 
-	var cargs C.CString
+	var cargs *C.char
 	if len(strings.TrimSpace(args)) == 0 {
 		cargs = nil
 	} else {
@@ -293,4 +303,105 @@ func (fg *FilterGraph) create(filter, name, args string) (*C.AVFilterContext, in
 	}
 
 	return ctx, ret
+}
+
+func (fg *FilterGraph) isVideo() bool {
+	return fg.video
+}
+
+func (fg *FilterGraph) RequestOldest() error {
+	if fg.filterGraph == nil {
+		return errors.New("Graph not inited")
+	}
+	var ret int
+
+	if ret = int(C.avfilter_graph_request_oldest(fg.filterGraph)); ret < 0 {
+		return AvError(ret)
+	}
+
+	return nil
+}
+
+func (fg *FilterGraph) AddFrame(frame *Frame, istIdx int, flag int) error {
+	var ret int
+
+	if fg.filterGraph == nil {
+		fg.configureVideo(frame)
+	}
+
+	if istIdx >= len(fg.inFilterCtxs) {
+		return fmt.Errorf("unexpected stream index #%d", istIdx)
+	}
+
+	if ret = int(C.av_buffersrc_add_frame_flags(
+		fg.inFilterCtxs[istIdx],
+		frame.avFrame,
+		C.int(flag)),
+	); ret < 0 {
+		return AvError(ret)
+	}
+
+	return nil
+}
+
+func (fg *FilterGraph) GetFrame() ([]*Frame, error) {
+	var (
+		ret    int
+		result []*Frame = make([]*Frame, 0)
+	)
+
+	for {
+		frame := NewFrame()
+
+		ret = int(C.av_buffersink_get_frame_flags(fg.outFilterCtxs[0], frame.avFrame, AV_BUFFERSINK_FLAG_NO_REQUEST))
+		if AvErrno(ret) == syscall.EAGAIN || ret == AVERROR_EOF {
+			frame.Free()
+			break
+		} else if ret < 0 {
+			frame.Free()
+			return nil, AvError(ret)
+		}
+
+		result = append(result, frame)
+	}
+
+	fg.RequestOldest()
+
+	return result, AvError(ret)
+}
+
+func (fg *FilterGraph) Close(istIdx int) error {
+	var ret int
+
+	if ret = int(C.av_buffersrc_close(fg.inFilterCtxs[istIdx], 0, AV_BUFFERSRC_FLAG_PUSH)); ret < 0 {
+		return AvError(ret)
+	}
+
+	return nil
+}
+
+func (fg *FilterGraph) Dump() {
+	if fg.filterGraph != nil {
+		fmt.Println(C.GoString(C.avfilter_graph_dump(fg.filterGraph, nil)))
+	} else {
+		log.Println("Graph not inited when dump.")
+	}
+}
+
+func (fg *FilterGraph) Release() {
+	for _, inFilterCtx := range fg.inFilterCtxs {
+		C.avfilter_free(inFilterCtx)
+	}
+
+	for _, out := range fg.outFilterCtxs {
+		C.avfilter_free(out)
+	}
+
+	if fg.formatCtx != nil {
+		C.avfilter_free(fg.formatCtx)
+	}
+
+	if fg.filterGraph != nil {
+		C.avfilter_graph_free(&fg.filterGraph)
+	}
 }
