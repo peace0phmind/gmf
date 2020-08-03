@@ -58,6 +58,14 @@ static char *gmf_choose_pix_fmts(AVCodec *enc)
 	}
 }
 
+static void gmf_set_nearest_framerate(AVCodecContext *cc, AVCodec *c) {
+	int idx = av_find_nearest_q_idx(cc->framerate, c->supported_framerates);
+	cc->framerate = c->supported_framerates[idx];
+}
+
+static void gmf_set_pix_fmt_from_sink(AVCodecContext *cc, AVFilterContext *sinkFilterContext) {
+	cc->pix_fmt = av_buffersink_get_format(sinkFilterContext);
+}
 */
 import "C"
 
@@ -170,12 +178,78 @@ func (fg *FilterGraph) configureVideo(frame *Frame) error {
 
 	i = 0
 	for cur := outputs; cur != nil; cur = cur.next {
-		fg.configVideoOutput(i, cur)
+		fg.configVideoOutput(frame, i, cur)
 		i++
 	}
 
 	if ret = int(C.avfilter_graph_config(fg.filterGraph, nil)); ret < 0 {
 		return fmt.Errorf("graph config error - %s", AvError(ret))
+	}
+
+	return nil
+}
+
+func (fg *FilterGraph) initVideoEncoderContext(idx int) error {
+	src := fg.inStreams[idx]
+	dest := fg.outStreams[idx]
+
+	if dest.CodecCtx().IsOpen() {
+		return nil
+	}
+
+	dest.avStream.disposition = src.avStream.disposition
+
+	encCtx := dest.CodecCtx()
+	decCtx := src.CodecCtx()
+
+	encCtx.avCodecCtx.chroma_sample_location = decCtx.avCodecCtx.chroma_sample_location
+
+	/****************************** set frame rate ******************************/
+	if encCtx.GetFrameRate().AVR().Num == 0 {
+		encCtx.avCodecCtx.framerate = C.av_buffersink_get_frame_rate(fg.outFilterCtxs[0])
+	}
+
+	if encCtx.GetFrameRate().AVR().Num == 0 {
+		encCtx.avCodecCtx.framerate = decCtx.avCodecCtx.framerate
+	}
+
+	if encCtx.GetFrameRate().AVR().Num == 0 {
+		encCtx.avCodecCtx.framerate = src.avStream.r_frame_rate
+	}
+
+	if encCtx.GetFrameRate().AVR().Num == 0 {
+		encCtx.avCodecCtx.framerate.num = 25
+		encCtx.avCodecCtx.framerate.den = 1
+		log.Println("No information about the input framerate is available. Falling back to a default value of 25fps")
+	}
+
+	if encCtx.codec.avCodec.supported_framerates != nil && !encCtx.forceFps {
+		C.gmf_set_nearest_framerate(encCtx.avCodecCtx, encCtx.codec.avCodec)
+	}
+
+	/****************************** set time base ******************************/
+	if encCtx.TimeBase().AVR().Num == 0 {
+		encCtx.avCodecCtx.time_base = C.av_inv_q(encCtx.avCodecCtx.framerate)
+	}
+
+	sinkFilterContext := fg.outFilterCtxs[0]
+	/****************************** set sample_aspect_ratio ******************************/
+	encCtx.avCodecCtx.sample_aspect_ratio = C.av_buffersink_get_sample_aspect_ratio(sinkFilterContext)
+
+	/****************************** set sample_aspect_ratio ******************************/
+	C.gmf_set_pix_fmt_from_sink(encCtx.avCodecCtx, sinkFilterContext)
+
+	/****************************** set bits_per_raw_sample ******************************/
+	encCtx.avCodecCtx.bits_per_raw_sample = min(decCtx.avCodecCtx.bits_per_raw_sample,
+		C.av_pix_fmt_desc_get(encCtx.avCodecCtx.pix_fmt).comp[0].depth)
+
+	/****************************** set avg_frame_rate ******************************/
+	dest.avStream.avg_frame_rate = encCtx.avCodecCtx.framerate
+
+	encCtx.Open(nil)
+	/****************************** set stream ******************************/
+	if ret := C.avcodec_parameters_from_context(dest.avStream.codecpar, encCtx.avCodecCtx); ret < 0 {
+		return errors.New("Error initializing the output stream codec context.")
 	}
 
 	return nil
@@ -213,10 +287,11 @@ func (fg *FilterGraph) configVideoInput(frame *Frame, idx int, in *C.AVFilterInO
 	return nil
 }
 
-func (fg *FilterGraph) configVideoOutput(idx int, out *C.AVFilterInOut) error {
+func (fg *FilterGraph) configVideoOutput(frame *Frame, idx int, out *C.AVFilterInOut) error {
 
 	lastFilterContext := out.filter_ctx
 	padIdx := out.pad_idx
+
 	outStream := fg.outStreams[idx]
 
 	var (
@@ -234,6 +309,13 @@ func (fg *FilterGraph) configVideoOutput(idx int, out *C.AVFilterInOut) error {
 
 	/****************************** auto scale ******************************/
 	occ := outStream.CodecCtx()
+
+	w := occ.Width()
+	h := occ.Height()
+	if w <= 0 || h <= 0 {
+		w = frame.Width()
+		h = frame.Height()
+	}
 
 	var args = fmt.Sprintf("%d:%d:flags=bicubic", occ.Width(), occ.Height())
 	if scaleContext, ret = fg.create("scale", fmt.Sprintf("scale_%d", idx), args); ret < 0 {
@@ -345,6 +427,7 @@ func (fg *FilterGraph) AddFrame(frame *Frame, istIdx int, flag int) error {
 }
 
 func (fg *FilterGraph) GetFrame() ([]*Frame, error) {
+
 	var (
 		ret    int
 		result []*Frame = make([]*Frame, 0)
@@ -366,6 +449,10 @@ func (fg *FilterGraph) GetFrame() ([]*Frame, error) {
 	}
 
 	fg.RequestOldest()
+
+	if !fg.outStreams[0].CodecCtx().opened && fg.isVideo() {
+		fg.initVideoEncoderContext(0)
+	}
 
 	return result, AvError(ret)
 }
@@ -404,4 +491,11 @@ func (fg *FilterGraph) Release() {
 	if fg.filterGraph != nil {
 		C.avfilter_graph_free(&fg.filterGraph)
 	}
+}
+
+func min(a, b C.int) C.int {
+	if a < b {
+		return a
+	}
+	return b
 }

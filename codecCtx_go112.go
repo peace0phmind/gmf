@@ -174,11 +174,11 @@ var (
 	}
 )
 
-type avBprint C.struct_AVBprint
-
 type CodecCtx struct {
 	codec      *Codec
 	avCodecCtx *C.struct_AVCodecContext
+	forceFps   bool
+	opened     bool
 	CgoMemoryManage
 }
 
@@ -257,6 +257,8 @@ func (cc *CodecCtx) Open(dict *Dict) error {
 	if averr := C.avcodec_open2(cc.avCodecCtx, cc.codec.avCodec, &avDict); averr < 0 {
 		return errors.New(fmt.Sprintf("Error opening codec '%s:%s', averror: %s", cc.codec.Name(), cc.codec.LongName(), AvError(int(averr))))
 	}
+
+	cc.opened = true
 
 	return nil
 }
@@ -454,6 +456,7 @@ func (cc *CodecCtx) SetChannels(val int) *CodecCtx {
 func (cc *CodecCtx) SetFrameRate(r AVR) *CodecCtx {
 	cc.avCodecCtx.framerate.num = C.int(r.Num)
 	cc.avCodecCtx.framerate.den = C.int(r.Den)
+	cc.forceFps = true
 	return cc
 }
 

@@ -59,24 +59,24 @@ func addStream(codecNameOrId interface{}, oc *gmf.FmtCtx, ist *gmf.Stream) (int,
 		//cc.SetPixFmt(gmf.AV_PIX_FMT_YUV420P)
 	}
 
-	if err := cc.Open(nil); err != nil {
-		log.Fatal(err)
-	}
+	//if err := cc.Open(nil); err != nil {
+	//	log.Fatal(err)
+	//}
 
-	par := gmf.NewCodecParameters()
-	if err := par.FromContext(cc); err != nil {
-		log.Fatalf("error creating codec parameters from context - %s", err)
-	}
-	defer par.Free()
+	//par := gmf.NewCodecParameters()
+	//if err := par.FromContext(cc); err != nil {
+	//	log.Fatalf("error creating codec parameters from context - %s", err)
+	//}
+	//defer par.Free()
 
 	if ost = oc.NewStream(codec); ost == nil {
 		log.Fatal(errors.New("unable to create stream in output context"))
 	}
 
-	ost.CopyCodecPar(par)
-	ost.SetCodecCtx(cc)
-	ost.SetTimeBase(gmf.AVR{Num: 1, Den: 25})
-	ost.SetRFrameRate(gmf.AVR{Num: 25, Den: 1})
+	//ost.CopyCodecPar(par)
+	//ost.SetCodecCtx(cc)
+	//ost.SetTimeBase(gmf.AVR{Num: 1, Den: 25})
+	//ost.SetRFrameRate(gmf.AVR{Num: 25, Den: 1})
 
 	return ist.Index(), ost.Index()
 }
