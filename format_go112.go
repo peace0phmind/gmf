@@ -60,6 +60,10 @@ import (
 )
 
 const (
+	ENOMEM int = C.ENOMEM
+)
+
+const (
 	AV_LOG_QUIET   int = C.AV_LOG_QUIET
 	AV_LOG_PANIC   int = C.AV_LOG_PANIC
 	AV_LOG_FATAL   int = C.AV_LOG_FATAL
@@ -426,7 +430,7 @@ func (this *FmtCtx) NewStream(c *Codec) *Stream {
 	if st := C.avformat_new_stream(this.avCtx, avCodec); st == nil {
 		return nil
 	} else {
-		this.streams[int(st.index)] = &Stream{avStream: st}
+		this.streams[int(st.index)] = &Stream{avFmtCtx: this, avStream: st}
 		Retain(this.streams[int(st.index)])
 		return this.streams[int(st.index)]
 	}
@@ -440,7 +444,7 @@ func (this *FmtCtx) StreamsCnt() int {
 }
 
 func (this *FmtCtx) GetStream(idx int) (*Stream, error) {
-	if idx > this.StreamsCnt()-1 || this.StreamsCnt() == 0 {
+	if idx >= this.StreamsCnt() || idx < 0 || this.StreamsCnt() == 0 {
 		return nil, errors.New(fmt.Sprintf("Stream index '%d' is out of range. There is only '%d' streams.", idx, this.StreamsCnt()))
 	}
 
@@ -448,6 +452,7 @@ func (this *FmtCtx) GetStream(idx int) (*Stream, error) {
 		// create instance of Stream wrapper, when stream was initialized
 		// by demuxer. it means that this is an input context.
 		this.streams[idx] = &Stream{
+			avFmtCtx: this,
 			avStream: C.gmf_get_stream(this.avCtx, C.int(idx)),
 		}
 	}
@@ -524,6 +529,13 @@ func (this *FmtCtx) CloseOutput() {
 
 func (this *FmtCtx) Free() {
 	this.Close()
+
+	for _, stream := range this.streams {
+		if stream != nil {
+			stream.avFmtCtx = nil
+			Release(stream)
+		}
+	}
 
 	if this.avCtx != nil {
 		C.avformat_free_context(this.avCtx)

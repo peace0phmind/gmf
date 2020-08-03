@@ -17,6 +17,7 @@ import (
 
 type Stream struct {
 	avStream *C.struct_AVStream
+	avFmtCtx *FmtCtx
 	SwsCtx   *SwsCtx
 	SwrCtx   *SwrCtx
 	AvFifo   *AVAudioFifo
@@ -72,7 +73,7 @@ func (s *Stream) CodecCtxWithCuda(withCuda bool) *CodecCtx {
 	if withCuda {
 		cudac, err := FindDecoder(c.Name() + "_cuvid")
 		if err != nil {
-			log.Fatal("Try to find cuda codec error, use origin codec")
+			log.Printf("Try to find cuda codec error, use origin codec")
 		} else {
 			c = cudac
 		}

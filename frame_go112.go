@@ -110,6 +110,10 @@ func (f *Frame) Height() int {
 	return int(f.avFrame.height)
 }
 
+func (f *Frame) SampleAspectRatio() AVRational {
+	return AVRational(f.avFrame.sample_aspect_ratio)
+}
+
 func (f *Frame) PktPts() int64 {
 	return int64(f.avFrame.pkt_pts)
 }

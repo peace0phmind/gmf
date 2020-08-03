@@ -16,6 +16,7 @@ import "C"
 
 import (
 	"fmt"
+	"strings"
 	"syscall"
 	"unsafe"
 )
@@ -80,7 +81,6 @@ func NewFilter(desc string, srcStreams []*Stream, ost *Stream, options []*Option
 		}
 
 		src := srcStreams[i]
-
 		args = fmt.Sprintf("video_size=%s:pix_fmt=%d:time_base=%s:pixel_aspect=%s:frame_rate=%s", src.CodecCtx().GetVideoSize(), src.CodecCtx().PixFmt(), src.TimeBase().AVR(), src.CodecCtx().GetAspectRation().AVR(), src.GetRFrameRate().AVR())
 
 		var bufferCtx *C.AVFilterContext
@@ -212,6 +212,10 @@ func (f *Filter) RequestOldest() error {
 
 func (f *Filter) Dump() {
 	fmt.Println(C.GoString(C.avfilter_graph_dump(f.filterGraph, nil)))
+}
+
+func (f *Filter) isVideoFilter() bool {
+	return f.videoFilter
 }
 
 func (f *Filter) Release() {
