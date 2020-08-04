@@ -85,41 +85,28 @@ func (f *Frame) Encode(enc *CodecCtx) (*Packet, error) {
 	return pkt, nil
 }
 
-func (f *Frame) Pts() int64 {
-	return int64(f.avFrame.pts)
-}
-
 func (f *Frame) Unref() {
 	C.av_frame_unref(f.avFrame)
-}
-
-func (f *Frame) SetPts(val int64) {
-	f.avFrame.pts = (C.int64_t)(val)
-}
-
-// AVPixelFormat for video frames, AVSampleFormat for audio
-func (f *Frame) Format() int {
-	return int(f.avFrame.format)
-}
-
-func (f *Frame) Width() int {
-	return int(f.avFrame.width)
-}
-
-func (f *Frame) Height() int {
-	return int(f.avFrame.height)
 }
 
 func (f *Frame) SampleAspectRatio() AVRational {
 	return AVRational(f.avFrame.sample_aspect_ratio)
 }
 
-func (f *Frame) PktPts() int64 {
-	return int64(f.avFrame.pkt_pts)
-}
-
 func (f *Frame) PktPos() int64 {
 	return int64(f.avFrame.pkt_pos)
+}
+
+func (f *Frame) Pts() int64 {
+	return int64(f.avFrame.pts)
+}
+
+func (f *Frame) SetPts(val int64) {
+	f.avFrame.pts = (C.int64_t)(val)
+}
+
+func (f *Frame) PktPts() int64 {
+	return int64(f.avFrame.pkt_pts)
 }
 
 func (f *Frame) SetPktPts(val int64) {
@@ -138,12 +125,13 @@ func (f *Frame) KeyFrame() int {
 	return int(f.avFrame.key_frame)
 }
 
-func (f *Frame) NbSamples() int {
-	return int(f.avFrame.nb_samples)
+func (f *Frame) SampleRate() int32 {
+	return int32(f.avFrame.sample_rate)
 }
 
-func (f *Frame) Channels() int {
-	return int(f.avFrame.channels)
+// AVPixelFormat for video frames, AVSampleFormat for audio
+func (f *Frame) Format() int {
+	return int(f.avFrame.format)
 }
 
 func (f *Frame) SetFormat(val int32) *Frame {
@@ -151,9 +139,17 @@ func (f *Frame) SetFormat(val int32) *Frame {
 	return f
 }
 
+func (f *Frame) Width() int {
+	return int(f.avFrame.width)
+}
+
 func (f *Frame) SetWidth(val int) *Frame {
 	f.avFrame.width = C.int(val)
 	return f
+}
+
+func (f *Frame) Height() int {
+	return int(f.avFrame.height)
 }
 
 func (f *Frame) SetHeight(val int) *Frame {
@@ -233,9 +229,17 @@ func (f *Frame) Free() {
 	}
 }
 
+func (f *Frame) NbSamples() int {
+	return int(f.avFrame.nb_samples)
+}
+
 func (f *Frame) SetNbSamples(val int) *Frame {
 	f.avFrame.nb_samples = C.int(val)
 	return f
+}
+
+func (f *Frame) ChannelLayout() int {
+	return int(f.avFrame.channel_layout)
 }
 
 func (f *Frame) SetChannelLayout(val int) *Frame {
@@ -243,8 +247,8 @@ func (f *Frame) SetChannelLayout(val int) *Frame {
 	return f
 }
 
-func (f *Frame) GetChannelLayout() int {
-	return int(f.avFrame.channel_layout)
+func (f *Frame) Channels() int {
+	return int(f.avFrame.channels)
 }
 
 func (f *Frame) SetChannels(val int) *Frame {

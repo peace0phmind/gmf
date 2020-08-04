@@ -91,10 +91,27 @@ type FilterGraph struct {
 }
 
 func NewVideoGraph(desc string, inStreams []*Stream, outStreams []*Stream, options []*Option) (*FilterGraph, error) {
+	return NewGraph(desc, AVMEDIA_TYPE_VIDEO, inStreams, outStreams, options)
+}
+
+func NewAudioGraph(desc string, inStreams []*Stream, outStreams []*Stream, options []*Option) (*FilterGraph, error) {
+	return NewGraph(desc, AVMEDIA_TYPE_AUDIO, inStreams, outStreams, options)
+}
+
+func NewGraph(desc string, typ int32, inStreams []*Stream, outStreams []*Stream, options []*Option) (*FilterGraph, error) {
+	if typ != AVMEDIA_TYPE_VIDEO && typ != AVMEDIA_TYPE_AUDIO {
+		return nil, errors.New("Only support video and audio filter graph.")
+	}
+
 	var avFilters = strings.TrimSpace(desc)
+	var video = typ == AVMEDIA_TYPE_VIDEO
 
 	if len(avFilters) == 0 {
-		avFilters = "null"
+		if video {
+			avFilters = "null"
+		} else {
+			avFilters = "anull"
+		}
 	} else {
 		var (
 			ret     int
@@ -127,7 +144,7 @@ func NewVideoGraph(desc string, inStreams []*Stream, outStreams []*Stream, optio
 		inFilterCtxs:  make([]*C.AVFilterContext, 0),
 		outFilterCtxs: make([]*C.AVFilterContext, 0),
 		avFilters:     avFilters,
-		video:         true,
+		video:         video,
 		inStreams:     inStreams,
 		outStreams:    outStreams,
 		options:       options,
@@ -136,7 +153,7 @@ func NewVideoGraph(desc string, inStreams []*Stream, outStreams []*Stream, optio
 	return f, nil
 }
 
-func (fg *FilterGraph) configureVideo(frame *Frame) error {
+func (fg *FilterGraph) configureGraph(frame *Frame) error {
 	if fg.filterGraph == nil {
 		fg.filterGraph = C.avfilter_graph_alloc()
 		if fg.filterGraph == nil {
@@ -172,13 +189,21 @@ func (fg *FilterGraph) configureVideo(frame *Frame) error {
 
 	i = 0
 	for cur := inputs; cur != nil; cur = cur.next {
-		fg.configVideoInput(frame, i, cur)
+		if fg.video {
+			fg.configVideoInput(frame, i, cur)
+		} else {
+			fg.configAudioInput(frame, i, cur)
+		}
 		i++
 	}
 
 	i = 0
 	for cur := outputs; cur != nil; cur = cur.next {
-		fg.configVideoOutput(frame, i, cur)
+		if fg.video {
+			fg.configVideoOutput(frame, i, cur)
+		} else {
+			fg.configAudioOutput(frame, i, cur)
+		}
 		i++
 	}
 
@@ -287,6 +312,39 @@ func (fg *FilterGraph) configVideoInput(frame *Frame, idx int, in *C.AVFilterInO
 	return nil
 }
 
+func (fg *FilterGraph) configAudioInput(frame *Frame, idx int, in *C.AVFilterInOut) error {
+	src := fg.inStreams[idx]
+	tb := src.TimeBase()
+
+	sr := frame.SampleAspectRatio().AVR()
+	if sr.Den == 0 {
+		sr = AVRational{0, 1}.AVR()
+	}
+
+	var ret int
+	var args = fmt.Sprintf("time_base=1/%d:sample_rate=%d:sample_fmt=%s", frame.SampleRate(), frame.SampleRate(),
+		C.av_get_sample_fmt_name(frame.Format()))
+
+	if frame.ChannelLayout() > 0 {
+		args += fmt.Sprintf(":channel_layout=0x%d", frame.ChannelLayout())
+	} else {
+		args += fmt.Sprintf(":channels=%d", frame.Channels())
+	}
+
+	var filterContext *C.AVFilterContext
+	if filterContext, ret = fg.create("abuffer", fmt.Sprintf("in_%d", idx), args); ret < 0 {
+		return fmt.Errorf("error creating input abuffer - %s", AvError(ret))
+	}
+
+	fg.inFilterCtxs = append(fg.inFilterCtxs, filterContext)
+
+	if ret = int(C.avfilter_link(filterContext, 0, in.filter_ctx, C.uint(in.pad_idx))); ret < 0 {
+		return fmt.Errorf("error linking filters - %s", AvError(ret))
+	}
+
+	return nil
+}
+
 func (fg *FilterGraph) configVideoOutput(frame *Frame, idx int, out *C.AVFilterInOut) error {
 
 	lastFilterContext := out.filter_ctx
@@ -355,6 +413,11 @@ func (fg *FilterGraph) configVideoOutput(frame *Frame, idx int, out *C.AVFilterI
 	return nil
 }
 
+func (fg *FilterGraph) configAudioOutput(frame *Frame, idx int, out *C.AVFilterInOut) error {
+
+	return nil
+}
+
 func (fg *FilterGraph) create(filter, name, args string) (*C.AVFilterContext, int) {
 	var (
 		ctx *C.AVFilterContext
@@ -410,7 +473,7 @@ func (fg *FilterGraph) AddFrame(frame *Frame, istIdx int, flag int) error {
 	var ret int
 
 	if fg.filterGraph == nil {
-		fg.configureVideo(frame)
+		fg.configureGraph(frame)
 	}
 
 	if istIdx >= len(fg.inFilterCtxs) {
