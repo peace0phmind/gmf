@@ -52,33 +52,14 @@ func addStream(codecNameOrId interface{}, oc *gmf.FmtCtx, ist *gmf.Stream) (int,
 	}
 
 	if cc.Type() == gmf.AVMEDIA_TYPE_VIDEO {
-		//cc.SetTimeBase(gmf.AVR{1, 25})
-		//cc.SetProfile(gmf.FF_PROFILE_MPEG4_SIMPLE)
-		cc.SetDimension(1024, 768)
-		//cc.SetPixFmt(ist.CodecCtx().PixFmt())
-		//cc.SetPixFmt(gmf.AV_PIX_FMT_YUV420P)
+		cc.SetDimension(1280, 720)
 	}
-
-	//if err := cc.Open(nil); err != nil {
-	//	log.Fatal(err)
-	//}
-
-	//par := gmf.NewCodecParameters()
-	//if err := par.FromContext(cc); err != nil {
-	//	log.Fatalf("error creating codec parameters from context - %s", err)
-	//}
-	//defer par.Free()
 
 	if ost = oc.NewStream(codec); ost == nil {
 		log.Fatal(errors.New("unable to create stream in output context"))
 	}
 
 	ost.SetCodecCtx(cc)
-
-	//ost.CopyCodecPar(par)
-	//ost.SetCodecCtx(cc)
-	//ost.SetTimeBase(gmf.AVR{Num: 1, Den: 25})
-	//ost.SetRFrameRate(gmf.AVR{Num: 25, Den: 1})
 
 	return ist.Index(), ost
 }
