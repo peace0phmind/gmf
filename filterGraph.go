@@ -11,6 +11,7 @@ package gmf
 #include <libavfilter/buffersrc.h>
 #include <libavutil/pixdesc.h>
 #include <libavutil/display.h>
+#include <libavutil/samplefmt.h>
 
 double gmf_get_rotation(AVStream *st)
 {
@@ -66,6 +67,93 @@ static void gmf_set_nearest_framerate(AVCodecContext *cc, AVCodec *c) {
 static void gmf_set_pix_fmt_from_sink(AVCodecContext *cc, AVFilterContext *sinkFilterContext) {
 	cc->pix_fmt = av_buffersink_get_format(sinkFilterContext);
 }
+
+const char* gmf_av_get_sample_fmt_name(int sample_fmt) {
+	return av_strdup(av_get_sample_fmt_name(sample_fmt));
+}
+
+static char* gmf_choose_sample_fmts(AVCodecContext *codecCtx,AVCodec *codec) {
+    if (codecCtx->sample_fmt != AV_SAMPLE_FMT_NONE) {
+        const char *name = av_get_sample_fmt_name(codecCtx->sample_fmt);
+        return av_strdup(name);
+    } else if (codec->sample_fmts) {
+        const enum AVSampleFormat *p;
+        AVIOContext *s = NULL;
+        uint8_t *ret;
+        int len;
+
+        if (avio_open_dyn_buf(&s) < 0) {
+			return NULL;
+		}
+
+        for (p = codec->sample_fmts; *p != AV_SAMPLE_FMT_NONE; p++) {
+            const char *name = av_get_sample_fmt_name(*p);
+            avio_printf(s, "%s|", name);
+        }
+        len = avio_close_dyn_buf(s, &ret);
+        ret[len - 1] = 0;
+        return (char*)ret;
+    } else {
+        return NULL;
+	}
+}
+
+static char* gmf_choose_sample_rates(AVCodecContext *codecCtx,AVCodec *codec) {
+    if (codecCtx->sample_rate != 0) {
+		char name[16];
+        snprintf(name, sizeof(name), "%d", codecCtx->sample_rate));
+        return av_strdup(name);
+    } else if (codec->supported_samplerates) {
+        const int *p;
+        AVIOContext *s = NULL;
+        uint8_t *ret;
+        int len;
+
+        if (avio_open_dyn_buf(&s) < 0) {
+			return NULL;
+		}
+
+        for (p = codec->supported_samplerates; *p != 0; p++) {
+			char name[16];
+			snprintf(name, sizeof(name), "%d", *p));
+            avio_printf(s, "%s|", name);
+        }
+        len = avio_close_dyn_buf(s, &ret);
+        ret[len - 1] = 0;
+        return (char*)ret;
+    } else {
+        return NULL;
+	}
+}
+
+static char* gmf_choose_channel_layouts(AVCodecContext *codecCtx,AVCodec *codec) {
+    if (codecCtx->channels != 0) {
+		char name[16];
+        snprintf(name, sizeof(name), "0x%"PRIx64, av_get_default_channel_layout(codecCtx->channels));
+        return av_strdup(name);
+    } else if (codec->channel_layouts) {
+        const uint64_t *p;
+        AVIOContext *s = NULL;
+        uint8_t *ret;
+        int len;
+
+        if (avio_open_dyn_buf(&s) < 0) {
+			return NULL;
+		}
+
+        for (p = codec->channel_layouts; *p != 0; p++) {
+			char name[16];
+			snprintf(name, sizeof(name), "0x%"PRIx64, *p);
+            avio_printf(s, "%s|", name);
+        }
+        len = avio_close_dyn_buf(s, &ret);
+        ret[len - 1] = 0;
+        return (char*)ret;
+    } else {
+        return NULL;
+	}
+}
+
 */
 import "C"
 
@@ -77,6 +165,8 @@ import (
 	"syscall"
 	"unsafe"
 )
+
+type AVSampleFormat C.enum_AVSampleFormat
 
 type FilterGraph struct {
 	inStreams     []*Stream
@@ -299,7 +389,7 @@ func (fg *FilterGraph) configVideoInput(frame *Frame, idx int, in *C.AVFilterInO
 	}
 
 	var filterContext *C.AVFilterContext
-	if filterContext, ret = fg.create("buffer", fmt.Sprintf("in_%d", idx), args); ret < 0 {
+	if filterContext, ret = fg.create("buffer", fmt.Sprintf("v_in_%d", idx), args); ret < 0 {
 		return fmt.Errorf("error creating input buffer - %s", AvError(ret))
 	}
 
@@ -313,17 +403,10 @@ func (fg *FilterGraph) configVideoInput(frame *Frame, idx int, in *C.AVFilterInO
 }
 
 func (fg *FilterGraph) configAudioInput(frame *Frame, idx int, in *C.AVFilterInOut) error {
-	src := fg.inStreams[idx]
-	tb := src.TimeBase()
-
-	sr := frame.SampleAspectRatio().AVR()
-	if sr.Den == 0 {
-		sr = AVRational{0, 1}.AVR()
-	}
-
 	var ret int
-	var args = fmt.Sprintf("time_base=1/%d:sample_rate=%d:sample_fmt=%s", frame.SampleRate(), frame.SampleRate(),
-		C.av_get_sample_fmt_name(frame.Format()))
+	sampleFmt := C.gmf_av_get_sample_fmt_name(C.int(frame.Format()))
+	var args = fmt.Sprintf("time_base=1/%d:sample_rate=%d:sample_fmt=%s", frame.SampleRate(), frame.SampleRate(), C.GoString(sampleFmt))
+	C.av_freep(unsafe.Pointer(&sampleFmt))
 
 	if frame.ChannelLayout() > 0 {
 		args += fmt.Sprintf(":channel_layout=0x%d", frame.ChannelLayout())
@@ -332,7 +415,7 @@ func (fg *FilterGraph) configAudioInput(frame *Frame, idx int, in *C.AVFilterInO
 	}
 
 	var filterContext *C.AVFilterContext
-	if filterContext, ret = fg.create("abuffer", fmt.Sprintf("in_%d", idx), args); ret < 0 {
+	if filterContext, ret = fg.create("abuffer", fmt.Sprintf("a_in_%d", idx), args); ret < 0 {
 		return fmt.Errorf("error creating input abuffer - %s", AvError(ret))
 	}
 
@@ -359,7 +442,7 @@ func (fg *FilterGraph) configVideoOutput(frame *Frame, idx int, out *C.AVFilterI
 		formatContext *C.AVFilterContext
 	)
 
-	if sinkContext, ret = fg.create("buffersink", fmt.Sprintf("out_%d", idx), ""); ret < 0 {
+	if sinkContext, ret = fg.create("buffersink", fmt.Sprintf("v_out_%d", idx), ""); ret < 0 {
 		return fmt.Errorf("error creating filter 'buffersink' - %s", AvError(ret))
 	}
 
@@ -367,6 +450,85 @@ func (fg *FilterGraph) configVideoOutput(frame *Frame, idx int, out *C.AVFilterI
 
 	/****************************** auto scale ******************************/
 	occ := outStream.CodecCtx()
+
+	w := occ.Width()
+	h := occ.Height()
+	if w <= 0 || h <= 0 {
+		w = frame.Width()
+		h = frame.Height()
+	}
+
+	if !(w == frame.Width() && h == frame.Height()) {
+		var args = fmt.Sprintf("%d:%d:flags=bicubic", w, h)
+		if scaleContext, ret = fg.create("scale", fmt.Sprintf("v_scale_%d", idx), args); ret < 0 {
+			return fmt.Errorf("error creating filter 'scale' - %s", AvError(ret))
+		}
+
+		if ret = int(C.avfilter_link(lastFilterContext, C.uint(padIdx), scaleContext, 0)); ret < 0 {
+			return fmt.Errorf("error linking filters - %s", AvError(ret))
+		}
+
+		lastFilterContext = scaleContext
+		padIdx = 0
+	}
+
+	/****************************** format ******************************/
+	if pixFmtName := C.gmf_choose_pix_fmts(occ.codec.avCodec); pixFmtName != nil {
+		defer C.av_freep(unsafe.Pointer(&pixFmtName))
+
+		if formatContext, ret = fg.create("format", fmt.Sprintf("v_format_%d", idx), C.GoString(pixFmtName)); ret < 0 {
+			return fmt.Errorf("error creating filter 'format' - %s", AvError(ret))
+		}
+
+		if ret = int(C.avfilter_link(lastFilterContext, C.uint(padIdx), formatContext, 0)); ret < 0 {
+			return fmt.Errorf("error linking filters - %s", AvError(ret))
+		}
+
+		lastFilterContext = formatContext
+		padIdx = 0
+	}
+
+	/****************************** link last to sink ******************************/
+	if ret = int(C.avfilter_link(lastFilterContext, C.uint(padIdx), sinkContext, 0)); ret < 0 {
+		return fmt.Errorf("error linking filters - %s", AvError(ret))
+	}
+
+	return nil
+}
+
+func (fg *FilterGraph) configAudioOutput(frame *Frame, idx int, out *C.AVFilterInOut) error {
+	lastFilterContext := out.filter_ctx
+	padIdx := out.pad_idx
+
+	outStream := fg.outStreams[idx]
+
+	var (
+		ret           int
+		sinkContext   *C.AVFilterContext
+		scaleContext  *C.AVFilterContext
+		formatContext *C.AVFilterContext
+	)
+
+	if sinkContext, ret = fg.create("abuffersink", fmt.Sprintf("a_out_%d", idx), ""); ret < 0 {
+		return fmt.Errorf("error creating filter 'buffersink' - %s", AvError(ret))
+	}
+
+	err := Option{"all_channel_counts", 1}.Set(sinkContext)
+	if err != nil {
+		return err
+	}
+
+	fg.outFilterCtxs = append(fg.outFilterCtxs, sinkContext)
+
+	/****************************** set channel_layout ******************************/
+	occ := outStream.CodecCtx()
+
+	if occ.Channels() > 0 && occ.ChannelLayout() == 0 {
+		occ.SetChannelLayout(int(C.av_get_default_channel_layout(C.int(occ.Channels()))))
+	}
+
+	sample_fmts := C.gmf_choose_sample_fmts(occ.avCodecCtx, occ.codec.avCodec)
+	log.Printf(C.GoString(sample_fmts))
 
 	w := occ.Width()
 	h := occ.Height()
@@ -409,11 +571,6 @@ func (fg *FilterGraph) configVideoOutput(frame *Frame, idx int, out *C.AVFilterI
 	if ret = int(C.avfilter_link(lastFilterContext, C.uint(padIdx), sinkContext, 0)); ret < 0 {
 		return fmt.Errorf("error linking filters - %s", AvError(ret))
 	}
-
-	return nil
-}
-
-func (fg *FilterGraph) configAudioOutput(frame *Frame, idx int, out *C.AVFilterInOut) error {
 
 	return nil
 }

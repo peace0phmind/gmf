@@ -21,7 +21,7 @@ type Option struct {
 	Val interface{}
 }
 
-func (this Option) Set(ctx interface{}) {
+func (this Option) Set(ctx interface{}) error {
 	ckey := C.CString(this.Key)
 	defer C.free(unsafe.Pointer(ckey))
 
@@ -62,6 +62,9 @@ func (this Option) Set(ctx interface{}) {
 	}
 
 	if ret < 0 {
-		log.Printf("unable to set key '%s' value '%v', error: %s\n", this.Key, this.Val, AvError(int(ret)))
+		log.Printf("unable to set key '%s' value '%v', error: %s\n", this.Key, this.Val, AvError(ret))
+		return AvErrno(ret)
 	}
+
+	return nil
 }
