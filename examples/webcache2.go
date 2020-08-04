@@ -53,6 +53,7 @@ func addStream(codecNameOrId interface{}, oc *gmf.FmtCtx, ist *gmf.Stream) (int,
 
 	if cc.Type() == gmf.AVMEDIA_TYPE_VIDEO {
 		cc.SetDimension(1280, 720)
+		cc.SetBitRate(1000)
 	}
 
 	if ost = oc.NewStream(codec); ost == nil {
