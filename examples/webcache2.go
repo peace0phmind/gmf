@@ -25,7 +25,7 @@ func assert(i interface{}, err error) interface{} {
 	return i
 }
 
-func addStream(codecNameOrId interface{}, oc *gmf.FmtCtx, ist *gmf.Stream) (int, int) {
+func addStream(codecNameOrId interface{}, oc *gmf.FmtCtx, ist *gmf.Stream) (int, *gmf.Stream) {
 	var cc *gmf.CodecCtx
 	var ost *gmf.Stream
 
@@ -73,12 +73,14 @@ func addStream(codecNameOrId interface{}, oc *gmf.FmtCtx, ist *gmf.Stream) (int,
 		log.Fatal(errors.New("unable to create stream in output context"))
 	}
 
+	ost.SetCodecCtx(cc)
+
 	//ost.CopyCodecPar(par)
 	//ost.SetCodecCtx(cc)
 	//ost.SetTimeBase(gmf.AVR{Num: 1, Den: 25})
 	//ost.SetRFrameRate(gmf.AVR{Num: 25, Den: 1})
 
-	return ist.Index(), ost.Index()
+	return ist.Index(), ost
 }
 
 func main() {
@@ -93,7 +95,7 @@ func main() {
 
 	flag.StringVar(&src, "src", "rtsp://admin:Zyx123456@192.168.1.10", "source file")
 	//flag.StringVar(&dst, "dst", "http://121.36.218.177:9081/uVMChBVGg1", "destination file")
-	flag.StringVar(&dst, "dst", "test.mp4", "destination file")
+	flag.StringVar(&dst, "dst", "test.mpeg", "destination file")
 	//flag.StringVar(&dst, "dst", "test.mp4", "destination file")
 	flag.Parse()
 
@@ -117,22 +119,11 @@ func main() {
 	defer outputCtx.Free()
 	outputCtx.Dump()
 
-	for i := 0; i < inputCtx.StreamsCnt(); i++ {
-		stream, err := inputCtx.GetStream(i)
-		if err != nil {
-			log.Fatal(err)
-		}
+	bestVideoStream := assert(inputCtx.GetBestStream(gmf.AVMEDIA_TYPE_VIDEO)).(*gmf.Stream)
 
-		if stream.IsVideo() {
-			addStream("mpeg1video", outputCtx, stream)
-			log.Printf("stream %s, %s\n", stream.CodecCtx().Codec().LongName(), stream.CodecCtx().GetVideoSize())
-		} else {
-			typ := assert(outputCtx.GuessEncodeCodecId(stream.Type())).(int)
-			addStream(typ, outputCtx, stream)
-		}
-	}
+	_, outVideoStream := addStream("mpeg1video", outputCtx, bestVideoStream)
 
-	fg, err := gmf.NewVideoGraph("", []*gmf.Stream{assert(inputCtx.GetBestStream(gmf.AVMEDIA_TYPE_VIDEO)).(*gmf.Stream)}, nil, nil)
+	fg, err := gmf.NewVideoGraph("", []*gmf.Stream{bestVideoStream}, []*gmf.Stream{outVideoStream}, nil)
 	defer fg.Release()
 	fg.Dump()
 
@@ -171,6 +162,10 @@ func main() {
 			log.Fatalf("%s\n", err)
 		}
 
+		if !ist.IsVideo() {
+			continue
+		}
+
 		frame, ret = ist.CodecCtx().Decode2(pkt)
 		if ret < 0 && gmf.AvErrno(ret) == syscall.EAGAIN {
 			continue
@@ -187,6 +182,7 @@ func main() {
 			if err := fg.AddFrame(frame, 0, 0); err != nil {
 				log.Fatalf("%s\n", err)
 			}
+			fg.Dump()
 			init = true
 			frame.Free()
 			continue
