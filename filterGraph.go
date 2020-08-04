@@ -301,7 +301,7 @@ func (fg *FilterGraph) configureGraph(frame *Frame) error {
 	return nil
 }
 
-func (fg *FilterGraph) initVideoEncoderContext(idx int) error {
+func (fg *FilterGraph) initEncoderContext(idx int) error {
 	src := fg.inStreams[idx]
 	dest := fg.outStreams[idx]
 
@@ -314,51 +314,79 @@ func (fg *FilterGraph) initVideoEncoderContext(idx int) error {
 	encCtx := dest.CodecCtx()
 	decCtx := src.CodecCtx()
 
+	sinkFilterContext := fg.outFilterCtxs[0]
+
 	encCtx.avCodecCtx.chroma_sample_location = decCtx.avCodecCtx.chroma_sample_location
 
 	/****************************** set frame rate ******************************/
-	if encCtx.GetFrameRate().AVR().Num == 0 {
-		encCtx.avCodecCtx.framerate = C.av_buffersink_get_frame_rate(fg.outFilterCtxs[0])
+	if fg.video {
+		if encCtx.GetFrameRate().AVR().Num == 0 {
+			encCtx.avCodecCtx.framerate = C.av_buffersink_get_frame_rate(fg.outFilterCtxs[0])
+		}
+
+		if encCtx.GetFrameRate().AVR().Num == 0 {
+			encCtx.avCodecCtx.framerate = decCtx.avCodecCtx.framerate
+		}
+
+		if encCtx.GetFrameRate().AVR().Num == 0 {
+			encCtx.avCodecCtx.framerate = src.avStream.r_frame_rate
+		}
+
+		if encCtx.GetFrameRate().AVR().Num == 0 {
+			encCtx.avCodecCtx.framerate.num = 25
+			encCtx.avCodecCtx.framerate.den = 1
+			log.Println("No information about the input framerate is available. Falling back to a default value of 25fps")
+		}
+
+		if encCtx.codec.avCodec.supported_framerates != nil && !encCtx.forceFps {
+			C.gmf_set_nearest_framerate(encCtx.avCodecCtx, encCtx.codec.avCodec)
+		}
 	}
 
-	if encCtx.GetFrameRate().AVR().Num == 0 {
-		encCtx.avCodecCtx.framerate = decCtx.avCodecCtx.framerate
+	if fg.video {
+		/****************************** set time base ******************************/
+		if encCtx.TimeBase().AVR().Num == 0 {
+			encCtx.avCodecCtx.time_base = C.av_inv_q(encCtx.avCodecCtx.framerate)
+		}
+
+		/****************************** set sample_aspect_ratio ******************************/
+		encCtx.avCodecCtx.sample_aspect_ratio = C.av_buffersink_get_sample_aspect_ratio(sinkFilterContext)
+
+		/****************************** set sample_aspect_ratio ******************************/
+		C.gmf_set_pix_fmt_from_sink(encCtx.avCodecCtx, sinkFilterContext)
+
+		/****************************** set bits_per_raw_sample ******************************/
+		encCtx.avCodecCtx.bits_per_raw_sample = min(decCtx.avCodecCtx.bits_per_raw_sample,
+			C.av_pix_fmt_desc_get(encCtx.avCodecCtx.pix_fmt).comp[0].depth)
+
+		/****************************** set avg_frame_rate ******************************/
+		dest.avStream.avg_frame_rate = encCtx.avCodecCtx.framerate
 	}
 
-	if encCtx.GetFrameRate().AVR().Num == 0 {
-		encCtx.avCodecCtx.framerate = src.avStream.r_frame_rate
+	if !fg.video {
+
+		encCtx.avCodecCtx.sample_fmt = C.av_buffersink_get_format(sinkFilterContext)
+
+		encCtx.avCodecCtx.bits_per_raw_sample = min(decCtx.avCodecCtx.bits_per_raw_sample,
+			C.av_get_bytes_per_sample(encCtx.avCodecCtx.sample_fmt)<<3)
+
+		encCtx.avCodecCtx.sample_rate = C.av_buffersink_get_sample_rate(sinkFilterContext)
+		encCtx.avCodecCtx.channel_layout = C.av_buffersink_get_channel_layout(sinkFilterContext)
+		encCtx.avCodecCtx.channels = C.av_buffersink_get_channels(sinkFilterContext)
+
+		encCtx.avCodecCtx.time_base = C.av_make_q(1, encCtx.avCodecCtx.sample_rate)
 	}
 
-	if encCtx.GetFrameRate().AVR().Num == 0 {
-		encCtx.avCodecCtx.framerate.num = 25
-		encCtx.avCodecCtx.framerate.den = 1
-		log.Println("No information about the input framerate is available. Falling back to a default value of 25fps")
+	dict := NewDict([]Pair{{"threads", "auto"}})
+
+	if err := encCtx.Open(dict); err != nil {
+		return err
 	}
 
-	if encCtx.codec.avCodec.supported_framerates != nil && !encCtx.forceFps {
-		C.gmf_set_nearest_framerate(encCtx.avCodecCtx, encCtx.codec.avCodec)
+	if !fg.video && !(encCtx.Codec().avCodec.capabilities & C.AV_CODEC_CAP_VARIABLE_FRAME_SIZE) {
+		C.av_buffersink_set_frame_size(sinkFilterContext, encCtx.avCodecCtx.frame_size)
 	}
 
-	/****************************** set time base ******************************/
-	if encCtx.TimeBase().AVR().Num == 0 {
-		encCtx.avCodecCtx.time_base = C.av_inv_q(encCtx.avCodecCtx.framerate)
-	}
-
-	sinkFilterContext := fg.outFilterCtxs[0]
-	/****************************** set sample_aspect_ratio ******************************/
-	encCtx.avCodecCtx.sample_aspect_ratio = C.av_buffersink_get_sample_aspect_ratio(sinkFilterContext)
-
-	/****************************** set sample_aspect_ratio ******************************/
-	C.gmf_set_pix_fmt_from_sink(encCtx.avCodecCtx, sinkFilterContext)
-
-	/****************************** set bits_per_raw_sample ******************************/
-	encCtx.avCodecCtx.bits_per_raw_sample = min(decCtx.avCodecCtx.bits_per_raw_sample,
-		C.av_pix_fmt_desc_get(encCtx.avCodecCtx.pix_fmt).comp[0].depth)
-
-	/****************************** set avg_frame_rate ******************************/
-	dest.avStream.avg_frame_rate = encCtx.avCodecCtx.framerate
-
-	encCtx.Open(nil)
 	/****************************** set stream ******************************/
 	if ret := C.avcodec_parameters_from_context(dest.avStream.codecpar, encCtx.avCodecCtx); ret < 0 {
 		return errors.New("Error initializing the output stream codec context.")
@@ -658,8 +686,8 @@ func (fg *FilterGraph) GetFrame() ([]*Frame, error) {
 
 	fg.RequestOldest()
 
-	if !fg.outStreams[0].CodecCtx().opened && fg.isVideo() {
-		fg.initVideoEncoderContext(0)
+	if !fg.outStreams[0].CodecCtx().opened {
+		fg.initEncoderContext(0)
 	}
 
 	return result, AvError(ret)
