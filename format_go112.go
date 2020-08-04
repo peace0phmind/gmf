@@ -258,7 +258,7 @@ func (this *FmtCtx) SetOptions(options []*Option) {
 func (this *FmtCtx) OpenInputWithOption(filename string, inputOptions *Option) error {
 	var (
 		cfilename *C.char
-		options   *C.struct_AVDictionary = inputOptions.Val.(*Dict).avDict
+		dict      *C.struct_AVDictionary = inputOptions.Val.(*Dict).avDict
 	)
 
 	if filename == "" {
@@ -268,7 +268,7 @@ func (this *FmtCtx) OpenInputWithOption(filename string, inputOptions *Option) e
 		defer C.free(unsafe.Pointer(cfilename))
 	}
 
-	if averr := C.avformat_open_input(&this.avCtx, cfilename, nil, &options); averr < 0 {
+	if averr := C.avformat_open_input(&this.avCtx, cfilename, nil, &dict); averr < 0 {
 		return errors.New(fmt.Sprintf("Error opening input '%s': %s", filename, AvError(int(averr))))
 	}
 

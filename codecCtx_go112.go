@@ -244,7 +244,7 @@ func (cc *CodecCtx) Open(dict *Dict) error {
 		return nil
 	}
 
-	var avDict *C.struct_AVDictionary
+	var avDict *C.struct_AVDictionary = nil
 	if dict != nil {
 		avDict = dict.avDict
 	}
