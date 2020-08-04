@@ -317,17 +317,19 @@ func (fg *FilterGraph) configVideoOutput(frame *Frame, idx int, out *C.AVFilterI
 		h = frame.Height()
 	}
 
-	var args = fmt.Sprintf("%d:%d:flags=bicubic", occ.Width(), occ.Height())
-	if scaleContext, ret = fg.create("scale", fmt.Sprintf("scale_%d", idx), args); ret < 0 {
-		return fmt.Errorf("error creating filter 'scale' - %s", AvError(ret))
-	}
+	if !(w == frame.Width() && h == frame.Height()) {
+		var args = fmt.Sprintf("%d:%d:flags=bicubic", w, h)
+		if scaleContext, ret = fg.create("scale", fmt.Sprintf("scale_%d", idx), args); ret < 0 {
+			return fmt.Errorf("error creating filter 'scale' - %s", AvError(ret))
+		}
 
-	if ret = int(C.avfilter_link(lastFilterContext, C.uint(padIdx), scaleContext, 0)); ret < 0 {
-		return fmt.Errorf("error linking filters - %s", AvError(ret))
-	}
+		if ret = int(C.avfilter_link(lastFilterContext, C.uint(padIdx), scaleContext, 0)); ret < 0 {
+			return fmt.Errorf("error linking filters - %s", AvError(ret))
+		}
 
-	lastFilterContext = scaleContext
-	padIdx = 0
+		lastFilterContext = scaleContext
+		padIdx = 0
+	}
 
 	/****************************** format ******************************/
 	if pixFmtName := C.gmf_choose_pix_fmts(occ.codec.avCodec); pixFmtName != nil {
