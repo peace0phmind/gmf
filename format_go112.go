@@ -52,6 +52,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"strings"
 	"syscall"
@@ -87,12 +88,13 @@ const (
 )
 
 type FmtCtx struct {
-	Filename string
+	filename string
 
 	avCtx    *C.struct_AVFormatContext
 	ofmt     *OutputFmt
 	streams  map[int]*Stream
 	customPb bool
+	isInput  bool
 }
 
 func init() {
@@ -128,7 +130,7 @@ func NewCtx(options ...*Option) (*FmtCtx, error) {
 }
 
 func NewOutputCtx(i interface{}, options ...[]Option) (*FmtCtx, error) {
-	this := &FmtCtx{streams: make(map[int]*Stream)}
+	this := &FmtCtx{streams: make(map[int]*Stream), isInput: false}
 
 	switch t := i.(type) {
 	case string:
@@ -161,13 +163,13 @@ func NewOutputCtx(i interface{}, options ...[]Option) (*FmtCtx, error) {
 		}
 	}
 
-	this.Filename = this.ofmt.Filename
+	this.filename = this.ofmt.Filename
 
 	return this, nil
 }
 
 func NewOutputCtxWithFormatName(filename, format string) (*FmtCtx, error) {
-	this := &FmtCtx{streams: make(map[int]*Stream)}
+	this := &FmtCtx{streams: make(map[int]*Stream), isInput: false}
 
 	cfilename := C.CString(filename)
 	defer C.free(unsafe.Pointer(cfilename))
@@ -181,7 +183,7 @@ func NewOutputCtxWithFormatName(filename, format string) (*FmtCtx, error) {
 		return nil, errors.New(fmt.Sprintf("unable to allocate context"))
 	}
 
-	this.Filename = filename
+	this.filename = filename
 
 	this.ofmt = &OutputFmt{Filename: filename, avOutputFmt: this.avCtx.oformat}
 
@@ -200,6 +202,8 @@ func NewInputCtx(filename string) (*FmtCtx, error) {
 		return nil, err
 	}
 
+	ctx.filename = filename
+	ctx.isInput = true
 	return ctx, nil
 }
 
@@ -228,6 +232,9 @@ func NewInputCtxWithOption(filename string, options ...*Option) (*FmtCtx, error)
 		}
 	}
 
+	ctx.filename = filename
+	ctx.isInput = true
+
 	return ctx, nil
 }
 
@@ -244,6 +251,9 @@ func NewInputCtxWithFormatName(filename, format string) (*FmtCtx, error) {
 	if err := ctx.OpenInput(filename); err != nil {
 		return nil, err
 	}
+
+	ctx.filename = filename
+	ctx.isInput = true
 	return ctx, nil
 }
 
@@ -271,6 +281,8 @@ func (this *FmtCtx) OpenInputWithOption(filename string, dict *Dict) error {
 		cFilename = C.CString(filename)
 		defer C.free(unsafe.Pointer(cFilename))
 	}
+
+	log.Println(vDict.Count())
 
 	if averr := C.avformat_open_input(&this.avCtx, cFilename, nil, &vDict.avDict); averr < 0 {
 		return errors.New(fmt.Sprintf("Error opening input '%s': %s", filename, AvError(int(averr))))
@@ -475,11 +487,14 @@ func (this *FmtCtx) FindStreamInfo() error {
 }
 
 func (this *FmtCtx) GuessEncodeCodecId(typ int32) (int, error) {
-	if this.ofmt == nil {
-		return AV_CODEC_ID_NONE, errors.New("Only output file format can guess.")
+	if this.IsInput() {
+		return AV_CODEC_ID_NONE, errors.New("Only output context format can guess.")
 	}
 
-	return int(C.av_guess_codec(this.avCtx.oformat, nil, this.avCtx.url, nil, typ)), nil
+	cFilename := C.CString(this.filename)
+	defer C.free(unsafe.Pointer(cFilename))
+
+	return int(C.av_guess_codec(this.avCtx.oformat, nil, cFilename, nil, typ)), nil
 }
 
 func (this *FmtCtx) SetInputFormat(name string) error {
@@ -630,6 +645,14 @@ func (this *FmtCtx) SetProbeSize(v int64) {
 
 func (this *FmtCtx) GetProbeSize() int64 {
 	return int64(this.avCtx.probesize)
+}
+
+func (this *FmtCtx) IsInput() bool {
+	return this.isInput
+}
+
+func (this *FmtCtx) IsOutput() bool {
+	return !this.isInput
 }
 
 type OutputFmt struct {
