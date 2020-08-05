@@ -96,16 +96,14 @@ type FmtCtx struct {
 }
 
 func init() {
+	C.av_log_set_flags(C.AV_LOG_SKIP_REPEATED)
+
 	C.avdevice_register_all()
 	C.avformat_network_init()
 }
 
 func LogSetLevel(level int) {
 	C.av_log_set_level(C.int(level))
-}
-
-func LogSetSkipRepeatFlag() {
-	C.av_log_set_flags(C.AV_LOG_SKIP_REPEATED)
 }
 
 // @todo start_time is it needed?

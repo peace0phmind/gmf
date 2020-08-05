@@ -64,7 +64,6 @@ func main() {
 	)
 
 	log.SetFlags(log.Lshortfile)
-	gmf.LogSetSkipRepeatFlag()
 	gmf.LogSetLevel(gmf.AV_LOG_DEBUG)
 
 	//flag.StringVar(&src, "src", "rtsp://admin:Zyx123456@192.168.1.10", "source file")
