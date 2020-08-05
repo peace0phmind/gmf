@@ -212,20 +212,20 @@ func NewInputCtxWithOption(filename string, options ...*Option) (*FmtCtx, error)
 		return nil, err
 	}
 
-	var inputOption *Option = nil
+	var iDict *Dict = nil
 
 	for _, option := range options {
 		if strings.Compare(option.Key, "input_options") == 0 {
-			inputOption = option
+			iDict = option.Val.(*Dict)
 		}
 	}
 
-	if inputOption == nil {
+	if iDict == nil {
 		if err := ctx.OpenInput(filename); err != nil {
 			return nil, err
 		}
 	} else {
-		if err := ctx.OpenInputWithOption(filename, inputOption); err != nil {
+		if err := ctx.OpenInputWithOption(filename, iDict); err != nil {
 			return nil, err
 		}
 	}
@@ -255,20 +255,26 @@ func (this *FmtCtx) SetOptions(options []*Option) {
 	}
 }
 
-func (this *FmtCtx) OpenInputWithOption(filename string, inputOptions *Option) error {
+func (this *FmtCtx) OpenInputWithOption(filename string, dict *Dict) error {
 	var (
-		cfilename *C.char
-		dict      *C.struct_AVDictionary = inputOptions.Val.(*Dict).avDict
+		cFilename *C.char
+		vDict     = dict
 	)
 
-	if filename == "" {
-		cfilename = nil
-	} else {
-		cfilename = C.CString(filename)
-		defer C.free(unsafe.Pointer(cfilename))
+	if vDict == nil {
+		vDict = NewDict([]Pair{})
 	}
 
-	if averr := C.avformat_open_input(&this.avCtx, cfilename, nil, &dict); averr < 0 {
+	vDict.Set("scan_all_pmts", "1", AV_DICT_DONT_OVERWRITE)
+
+	if filename == "" {
+		cFilename = nil
+	} else {
+		cFilename = C.CString(filename)
+		defer C.free(unsafe.Pointer(cFilename))
+	}
+
+	if averr := C.avformat_open_input(&this.avCtx, cFilename, nil, &vDict.avDict); averr < 0 {
 		return errors.New(fmt.Sprintf("Error opening input '%s': %s", filename, AvError(int(averr))))
 	}
 
@@ -280,14 +286,7 @@ func (this *FmtCtx) OpenInputWithOption(filename string, inputOptions *Option) e
 }
 
 func (this *FmtCtx) OpenInput(filename string) error {
-	//Create an empty Option object to pass to the open input
-	inputOptionsDict := NewDict([]Pair{})
-	inputOption := &Option{Key: "input_options", Val: inputOptionsDict}
-	if err := this.OpenInputWithOption(filename, inputOption); err != nil {
-		return err
-	}
-
-	return nil
+	return this.OpenInputWithOption(filename, nil)
 }
 
 func (this *FmtCtx) AddStreamWithCodeCtx(codeCtx *CodecCtx) (*Stream, error) {

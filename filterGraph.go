@@ -100,7 +100,7 @@ static char* gmf_choose_sample_fmts(AVCodecContext *codecCtx,AVCodec *codec) {
 static char* gmf_choose_sample_rates(AVCodecContext *codecCtx,AVCodec *codec) {
     if (codecCtx->sample_rate != 0) {
 		char name[16];
-        snprintf(name, sizeof(name), "%d", codecCtx->sample_rate));
+        snprintf(name, sizeof(name), "%d", codecCtx->sample_rate);
         return av_strdup(name);
     } else if (codec->supported_samplerates) {
         const int *p;
@@ -114,7 +114,7 @@ static char* gmf_choose_sample_rates(AVCodecContext *codecCtx,AVCodec *codec) {
 
         for (p = codec->supported_samplerates; *p != 0; p++) {
 			char name[16];
-			snprintf(name, sizeof(name), "%d", *p));
+			snprintf(name, sizeof(name), "%d", *p);
             avio_printf(s, "%s|", name);
         }
         len = avio_close_dyn_buf(s, &ret);
@@ -153,6 +153,10 @@ static char* gmf_choose_channel_layouts(AVCodecContext *codecCtx,AVCodec *codec)
 	}
 }
 
+static enum AVSampleFormat gmf_int_to_AVSampleFormat(int value) {
+	return value;
+}
+
 */
 import "C"
 
@@ -164,6 +168,8 @@ import (
 	"syscall"
 	"unsafe"
 )
+
+type AVSampleFormat C.enum_AVSampleFormat
 
 type FilterGraph struct {
 	inStreams     []*Stream
@@ -364,8 +370,7 @@ func (fg *FilterGraph) initEncoderContext(idx int) error {
 	}
 
 	if !fg.video {
-
-		encCtx.avCodecCtx.sample_fmt = C.av_buffersink_get_format(sinkFilterContext)
+		encCtx.avCodecCtx.sample_fmt = C.gmf_int_to_AVSampleFormat(C.int(C.av_buffersink_get_format(sinkFilterContext)))
 
 		encCtx.avCodecCtx.bits_per_raw_sample = min(decCtx.avCodecCtx.bits_per_raw_sample,
 			C.av_get_bytes_per_sample(encCtx.avCodecCtx.sample_fmt)<<3)
@@ -383,8 +388,8 @@ func (fg *FilterGraph) initEncoderContext(idx int) error {
 		return err
 	}
 
-	if !fg.video && !(encCtx.Codec().avCodec.capabilities & C.AV_CODEC_CAP_VARIABLE_FRAME_SIZE) {
-		C.av_buffersink_set_frame_size(sinkFilterContext, encCtx.avCodecCtx.frame_size)
+	if !fg.video && (encCtx.Codec().avCodec.capabilities&C.AV_CODEC_CAP_VARIABLE_FRAME_SIZE) == 0 {
+		C.av_buffersink_set_frame_size(sinkFilterContext, C.uint(encCtx.avCodecCtx.frame_size))
 	}
 
 	/****************************** set stream ******************************/
@@ -454,7 +459,6 @@ func (fg *FilterGraph) configAudioInput(frame *Frame, idx int, in *C.AVFilterInO
 }
 
 func (fg *FilterGraph) configVideoOutput(frame *Frame, idx int, out *C.AVFilterInOut) error {
-
 	lastFilterContext := out.filter_ctx
 	padIdx := out.pad_idx
 
@@ -663,7 +667,6 @@ func (fg *FilterGraph) AddFrame(frame *Frame, istIdx int, flag int) error {
 }
 
 func (fg *FilterGraph) GetFrame() ([]*Frame, error) {
-
 	var (
 		ret    int
 		result []*Frame = make([]*Frame, 0)
