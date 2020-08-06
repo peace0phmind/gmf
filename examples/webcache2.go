@@ -75,7 +75,8 @@ func main() {
 	log.SetFlags(log.Lshortfile)
 	gmf.LogSetLevel(gmf.AV_LOG_DEBUG)
 
-	flag.StringVar(&src, "src", "rtsp://admin:Zyx123456@192.168.1.10", "source file")
+	//flag.StringVar(&src, "src", "rtsp://admin:Zyx123456@192.168.1.10", "source file")
+	flag.StringVar(&src, "src", "bbb.mp4", "source file")
 	//flag.StringVar(&dst, "dst", "http://121.36.218.177:9081/uVMChBVGg1", "destination file")
 	flag.StringVar(&dst, "dst", "test.mpeg", "destination file")
 	//flag.StringVar(&dst, "dst", "test.mp4", "destination file")
@@ -136,7 +137,7 @@ func main() {
 			log.Printf("EOF input, closing\n")
 			fg.RequestOldest()
 			fg.Close(0)
-			continue
+			break
 		}
 
 		ist, err = inputCtx.GetStream(pkt.StreamIndex())
