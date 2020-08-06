@@ -150,6 +150,7 @@ func main() {
 
 		frame, ret = ist.CodecCtx().Decode2(pkt)
 		if ret < 0 && gmf.AvErrno(ret) == syscall.EAGAIN {
+			log.Printf("decode err")
 			continue
 		} else if ret == gmf.AVERROR_EOF {
 			log.Fatalf("EOF in Decode2, handle it\n")
