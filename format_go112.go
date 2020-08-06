@@ -304,7 +304,7 @@ func (this *FmtCtx) AddStreamWithCodeCtx(codeCtx *CodecCtx) (*Stream, error) {
 
 	// Create Video stream in output context
 	if ost = this.NewStream(codeCtx.Codec()); ost == nil {
-		return nil, fmt.Errorf("unable to create stream in context, filename: %s", this.Filename)
+		return nil, fmt.Errorf("unable to create stream in context, filename: %s", this.filename)
 	}
 
 	ost.DumpContexCodec(codeCtx)
@@ -334,12 +334,12 @@ func (this *FmtCtx) WriteHeader() error {
 	// If NOFILE flag isn't set and we don't use custom IO, open it
 	if !this.IsNoFile() && !this.customPb {
 		if averr := C.avio_open(&this.avCtx.pb, cfilename, C.AVIO_FLAG_WRITE); averr < 0 {
-			return errors.New(fmt.Sprintf("Unable to open '%s': %s", this.Filename, AvError(int(averr))))
+			return errors.New(fmt.Sprintf("Unable to open '%s': %s", this.filename, AvError(int(averr))))
 		}
 	}
 
 	if averr := C.avformat_write_header(this.avCtx, nil); averr < 0 {
-		return errors.New(fmt.Sprintf("Unable to write header to '%s': %s", this.Filename, AvError(int(averr))))
+		return errors.New(fmt.Sprintf("Unable to write header to '%s': %s", this.filename, AvError(int(averr))))
 	}
 
 	return nil
@@ -347,7 +347,7 @@ func (this *FmtCtx) WriteHeader() error {
 
 func (this *FmtCtx) WritePacket(p *Packet) error {
 	if averr := C.av_interleaved_write_frame(this.avCtx, &p.avPacket); averr < 0 {
-		return errors.New(fmt.Sprintf("Unable to write packet to '%s': %s", this.Filename, AvError(int(averr))))
+		return errors.New(fmt.Sprintf("Unable to write packet to '%s': %s", this.filename, AvError(int(averr))))
 	}
 
 	return nil
@@ -355,7 +355,7 @@ func (this *FmtCtx) WritePacket(p *Packet) error {
 
 func (this *FmtCtx) WritePacketNoBuffer(p *Packet) error {
 	if averr := C.av_write_frame(this.avCtx, &p.avPacket); averr < 0 {
-		return errors.New(fmt.Sprintf("Unable to write packet to '%s': %s", this.Filename, AvError(int(averr))))
+		return errors.New(fmt.Sprintf("Unable to write packet to '%s': %s", this.filename, AvError(int(averr))))
 	}
 
 	return nil
