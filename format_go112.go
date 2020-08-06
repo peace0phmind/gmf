@@ -52,7 +52,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"os"
 	"strings"
 	"syscall"
@@ -281,8 +280,6 @@ func (this *FmtCtx) OpenInputWithOption(filename string, dict *Dict) error {
 		cFilename = C.CString(filename)
 		defer C.free(unsafe.Pointer(cFilename))
 	}
-
-	log.Println(vDict.Count())
 
 	if averr := C.avformat_open_input(&this.avCtx, cFilename, nil, &vDict.avDict); averr < 0 {
 		return errors.New(fmt.Sprintf("Error opening input '%s': %s", filename, AvError(int(averr))))

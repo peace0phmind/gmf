@@ -57,9 +57,9 @@ func (d *Dict) Count() int {
 
 func (d *Dict) Set(key, value string, flags int) error {
 	ckey := C.CString(key)
-	C.free(unsafe.Pointer(ckey))
+	defer C.free(unsafe.Pointer(ckey))
 	cval := C.CString(value)
-	C.free(unsafe.Pointer(cval))
+	defer C.free(unsafe.Pointer(cval))
 
 	if ret := C.av_dict_set(&d.avDict, ckey, cval, C.int(flags)); int(ret) < 0 {
 		log.Printf("unable to set: key '%v' value '%v', error: %s\n", key, value, AvError(int(ret)))

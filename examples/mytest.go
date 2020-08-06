@@ -86,13 +86,6 @@ func main() {
 		dst string
 	)
 
-	in1, err :=gmf.NewInputCtx("bbb.mp4")
-	in2, err := gmf.NewInputCtx("test.png")
-
-	log.Printf("%v",in1)
-	log.Printf("%v",in2)
-
-
 	log.SetFlags(log.Lshortfile)
 	gmf.LogSetLevel(gmf.AV_LOG_DEBUG)
 
