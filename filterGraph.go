@@ -388,7 +388,7 @@ func (fg *FilterGraph) initEncoderContext(idx int) error {
 	if err := encCtx.Open(dict); err != nil {
 		return err
 	}
-	dict.Dump()
+	//dict.Dump()
 
 	if !fg.video && (encCtx.Codec().avCodec.capabilities&C.AV_CODEC_CAP_VARIABLE_FRAME_SIZE) == 0 {
 		C.av_buffersink_set_frame_size(sinkFilterContext, C.uint(encCtx.avCodecCtx.frame_size))
