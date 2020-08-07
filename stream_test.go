@@ -6,7 +6,10 @@ import (
 )
 
 func TestStream(t *testing.T) {
-	ctx := NewCtx()
+	ctx, err := NewCtx()
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	vc, err := FindEncoder("mpeg4")
 	if err != nil {
@@ -58,5 +61,5 @@ func TestStreamInputCtx(t *testing.T) {
 
 	log.Printf("Input stream is OK, cnt: %d, %dx%d\n", inputCtx.StreamsCnt(), ist.CodecCtx().Width(), ist.CodecCtx().Height())
 
-	inputCtx.CloseInputAndRelease()
+	inputCtx.Free()
 }

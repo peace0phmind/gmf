@@ -219,7 +219,7 @@ func (this *FmtCtx) SetOptions(options []*Option) {
 func (this *FmtCtx) OpenInputWithOption(filename string, inputOptions *Option) error {
 	var (
 		cfilename *_Ctype_char
-		options   *C.struct_AVDictionary = inputOptions.Val.(*Dict).avDict
+		options   *C.struct_AVDictionary = inputOptions.Val.(*Dict).dict
 	)
 
 	if filename == "" {

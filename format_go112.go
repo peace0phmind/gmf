@@ -281,7 +281,7 @@ func (this *FmtCtx) OpenInputWithOption(filename string, dict *Dict) error {
 		defer C.free(unsafe.Pointer(cFilename))
 	}
 
-	if averr := C.avformat_open_input(&this.avCtx, cFilename, nil, &vDict.avDict); averr < 0 {
+	if averr := C.avformat_open_input(&this.avCtx, cFilename, nil, &vDict.dict); averr < 0 {
 		return errors.New(fmt.Sprintf("Error opening input '%s': %s", filename, AvError(int(averr))))
 	}
 

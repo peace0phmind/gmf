@@ -15,11 +15,14 @@ func TestSwrInit(t *testing.T) {
 		{"out_sample_fmt", AV_SAMPLE_FMT_S16},
 	}
 
-	swrCtx := NewSwrCtx(options, nil)
+	swrCtx, err := NewSwrCtx(options, 1, AV_SAMPLE_FMT_S16)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if swrCtx == nil {
 		t.Fatal("unable to create Swr Context")
 	} else {
-		Release(swrCtx)
+		swrCtx.Free()
 	}
 
 	log.Println("Swr context is createad")

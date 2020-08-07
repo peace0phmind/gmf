@@ -55,7 +55,7 @@ func (this Option) Set(ctx interface{}) error {
 		ret = int(C.av_opt_set(unsafe.Pointer(reflect.ValueOf(ctx).Pointer()), ckey, cval, C.AV_OPT_SEARCH_CHILDREN))
 
 	case *Dict:
-		ret = int(C.av_opt_set_dict(unsafe.Pointer(reflect.ValueOf(ctx).Pointer()), &this.Val.(*Dict).avDict))
+		ret = int(C.av_opt_set_dict(unsafe.Pointer(reflect.ValueOf(ctx).Pointer()), &this.Val.(*Dict).dict))
 
 	default:
 		log.Println("unsupported type:", t)

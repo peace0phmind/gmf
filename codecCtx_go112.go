@@ -246,7 +246,7 @@ func (cc *CodecCtx) Open(dict *Dict) error {
 
 	var avDict *C.struct_AVDictionary = nil
 	if dict != nil {
-		avDict = dict.avDict
+		avDict = dict.dict
 	}
 
 	if cc.Codec().IsDecoder() {
