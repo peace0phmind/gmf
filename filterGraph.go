@@ -487,6 +487,7 @@ func (fg *FilterGraph) configVideoOutput(frame *Frame, idx int, out *C.AVFilterI
 	if w <= 0 || h <= 0 {
 		w = frame.Width()
 		h = frame.Height()
+		occ.SetDimension(w, h)
 	}
 
 	if !(w == frame.Width() && h == frame.Height()) {

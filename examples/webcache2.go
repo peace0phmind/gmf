@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"flag"
+	"fmt"
 	"github.com/peace0phmind/gmf"
 	"io"
 	"log"
@@ -52,8 +53,9 @@ func addStream(codecNameOrId interface{}, oc *gmf.FmtCtx, ist *gmf.Stream) (int,
 	}
 
 	if cc.Type() == gmf.AVMEDIA_TYPE_VIDEO {
-		cc.SetDimension(1280, 720)
+		//cc.SetDimension(1280, 720)
 		cc.SetBitRate(1000)
+		fmt.Printf("w:%d,h:%d", cc.Width(), cc.Height())
 		//cc.SetBitRate(5*1024*1024)
 	}
 
