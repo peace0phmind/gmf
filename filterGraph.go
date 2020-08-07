@@ -383,7 +383,7 @@ func (fg *FilterGraph) initEncoderContext(idx int) error {
 	}
 
 	dict := NewDict([]Pair{{"threads", "auto"}})
-	defer dict.Free()
+	//defer dict.Free()
 
 	if err := encCtx.Open(dict); err != nil {
 		return err
