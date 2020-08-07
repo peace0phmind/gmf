@@ -88,8 +88,8 @@ func (d *Dict) SetInt(key string, value int, flags int) error {
 }
 
 func (d *Dict) Free() {
-	if d.dict != nil {
-		C.av_dict_free((**C.struct_AVDictionary)(unsafe.Pointer(&d.dict)))
+	if d.dict != nil && d.Count() > 0 {
+		C.av_dict_free(&d.dict)
 	}
 }
 
@@ -117,6 +117,9 @@ func (d *Dict) Iterator() <-chan DictEntry {
 }
 
 func (d *Dict) Dump() {
+	if d.Count() < 0 {
+		return
+	}
 
 	var args = ""
 	for e := range d.Iterator() {
