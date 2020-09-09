@@ -37,6 +37,13 @@ func NewPacket() *Packet {
 	return p
 }
 
+func NewPacketWith(data unsafe.Pointer, size int) *Packet {
+	p := NewPacket()
+	p.avPacket.data = (*C.uchar)(data)
+	p.avPacket.size = C.int(size)
+	return p
+}
+
 func (p *Packet) Pts() int64 {
 	return int64(p.avPacket.pts)
 }
