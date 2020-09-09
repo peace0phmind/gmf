@@ -468,12 +468,6 @@ func (fg *FilterGraph) initEncoderContext(idx int) error {
 
 func (fg *FilterGraph) configVideoInput(frame *Frame, idx int, in *C.AVFilterInOut) error {
 
-	var tb AVRational = nil;
-
-	if !fg.simpleGraph {
-		tb = fg.inStreams[idx].TimeBase()
-	}
-
 	sr := frame.SampleAspectRatio().AVR()
 	if sr.Den == 0 {
 		sr = AVRational{0, 1}.AVR()
@@ -482,7 +476,8 @@ func (fg *FilterGraph) configVideoInput(frame *Frame, idx int, in *C.AVFilterInO
 	var ret int
 	var args = fmt.Sprintf("video_size=%dx%d:pix_fmt=%d:pixel_aspect=%s", frame.Width(), frame.Height(), frame.Format(), sr)
 
-	if tb != nil {
+	if !fg.simpleGraph {
+		tb := fg.inStreams[idx].TimeBase()
 		args += fmt.Sprintf(":time_base=%s", tb.AVR())
 	}
 
