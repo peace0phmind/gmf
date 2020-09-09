@@ -174,6 +174,7 @@ type AVSampleFormat C.enum_AVSampleFormat
 type FilterGraph struct {
 	inStreams     []*Stream
 	outStreams    []*Stream
+
 	inFilterCtxs  []*C.AVFilterContext
 	outFilterCtxs []*C.AVFilterContext
 	formatCtx     *C.AVFilterContext
@@ -181,6 +182,10 @@ type FilterGraph struct {
 	avFilters     string //filter desc string
 	options       []*Option
 	video         bool
+
+	simpleGraph   bool
+	decCtx 		  *CodecCtx
+	encCtx 		  *CodecCtx
 }
 
 func NewVideoGraph(desc string, inStreams []*Stream, outStreams []*Stream, options []*Option) (*FilterGraph, error) {
@@ -189,6 +194,57 @@ func NewVideoGraph(desc string, inStreams []*Stream, outStreams []*Stream, optio
 
 func NewAudioGraph(desc string, inStreams []*Stream, outStreams []*Stream, options []*Option) (*FilterGraph, error) {
 	return NewGraph(desc, AVMEDIA_TYPE_AUDIO, inStreams, outStreams, options)
+}
+
+func NewSimpleVideoGraph(desc string, decCtx *CodecCtx, encCtx *CodecCtx)  (*FilterGraph, error) {
+	var avFilters = strings.TrimSpace(desc)
+	var video = true
+
+	if len(avFilters) == 0 {
+		if video {
+			avFilters = "null"
+		} else {
+			avFilters = "anull"
+		}
+	} else {
+		var (
+			ret     int
+			inputs  *C.AVFilterInOut
+			outputs *C.AVFilterInOut
+		)
+
+		filterGraph := C.avfilter_graph_alloc()
+		if filterGraph == nil {
+			return nil, AvError(ENOMEM)
+		}
+
+		cdesc := C.CString(desc)
+		defer C.free(unsafe.Pointer(cdesc))
+
+		if ret = int(C.avfilter_graph_parse2(
+			filterGraph,
+			cdesc,
+			&inputs,
+			&outputs,
+		)); ret < 0 {
+			return nil, fmt.Errorf("error parsing filter graph: %s. error is: %s", desc, AvError(ret))
+		}
+		defer C.avfilter_graph_free(&filterGraph)
+		defer C.avfilter_inout_free(&inputs)
+		defer C.avfilter_inout_free(&outputs)
+	}
+
+	f := &FilterGraph{
+		inFilterCtxs:  make([]*C.AVFilterContext, 0),
+		outFilterCtxs: make([]*C.AVFilterContext, 0),
+		avFilters:     avFilters,
+		video:         video,
+		simpleGraph: true,
+		decCtx:    decCtx,
+		encCtx:       encCtx,
+	}
+
+	return f, nil
 }
 
 func NewGraph(desc string, typ int32, inStreams []*Stream, outStreams []*Stream, options []*Option) (*FilterGraph, error) {
@@ -308,17 +364,22 @@ func (fg *FilterGraph) configureGraph(frame *Frame) error {
 }
 
 func (fg *FilterGraph) initEncoderContext(idx int) error {
-	src := fg.inStreams[idx]
-	dest := fg.outStreams[idx]
+	var decCtx, encCtx *CodecCtx
 
-	if dest.CodecCtx().IsOpen() {
+	if fg.simpleGraph {
+		decCtx = fg.decCtx
+		encCtx = fg.encCtx
+	} else {
+		decCtx = fg.inStreams[idx].CodecCtx()
+		encCtx = fg.outStreams[idx].CodecCtx()
+	}
+
+	if decCtx.IsOpen() {
 		return nil
 	}
 
-	dest.avStream.disposition = src.avStream.disposition
-
-	encCtx := dest.CodecCtx()
-	decCtx := src.CodecCtx()
+	// TODO pengyi
+	//dest.avStream.disposition = src.avStream.disposition
 
 	sinkFilterContext := fg.outFilterCtxs[0]
 
@@ -334,9 +395,10 @@ func (fg *FilterGraph) initEncoderContext(idx int) error {
 			encCtx.avCodecCtx.framerate = decCtx.avCodecCtx.framerate
 		}
 
-		if encCtx.GetFrameRate().AVR().Num == 0 {
-			encCtx.avCodecCtx.framerate = src.avStream.r_frame_rate
-		}
+		// TODO pengyi
+		//if encCtx.GetFrameRate().AVR().Num == 0 {
+		//	encCtx.avCodecCtx.framerate = src.avStream.r_frame_rate
+		//}
 
 		if encCtx.GetFrameRate().AVR().Num == 0 {
 			encCtx.avCodecCtx.framerate.num = 25
@@ -366,7 +428,8 @@ func (fg *FilterGraph) initEncoderContext(idx int) error {
 			C.av_pix_fmt_desc_get(encCtx.avCodecCtx.pix_fmt).comp[0].depth)
 
 		/****************************** set avg_frame_rate ******************************/
-		dest.avStream.avg_frame_rate = encCtx.avCodecCtx.framerate
+		// TODO pengyi
+		//dest.avStream.avg_frame_rate = encCtx.avCodecCtx.framerate
 	}
 
 	if !fg.video {
@@ -395,16 +458,21 @@ func (fg *FilterGraph) initEncoderContext(idx int) error {
 	}
 
 	/****************************** set stream ******************************/
-	if ret := C.avcodec_parameters_from_context(dest.avStream.codecpar, encCtx.avCodecCtx); ret < 0 {
-		return errors.New("Error initializing the output stream codec context.")
-	}
+	// TODO pengyi
+	//if ret := C.avcodec_parameters_from_context(dest.avStream.codecpar, encCtx.avCodecCtx); ret < 0 {
+	//	return errors.New("Error initializing the output stream codec context.")
+	//}
 
 	return nil
 }
 
 func (fg *FilterGraph) configVideoInput(frame *Frame, idx int, in *C.AVFilterInOut) error {
-	src := fg.inStreams[idx]
-	tb := src.TimeBase()
+
+	var tb AVRational = nil;
+
+	if !fg.simpleGraph {
+		tb = fg.inStreams[idx].TimeBase()
+	}
 
 	sr := frame.SampleAspectRatio().AVR()
 	if sr.Den == 0 {
@@ -412,12 +480,17 @@ func (fg *FilterGraph) configVideoInput(frame *Frame, idx int, in *C.AVFilterInO
 	}
 
 	var ret int
-	var args = fmt.Sprintf("video_size=%dx%d:pix_fmt=%d:time_base=%s:pixel_aspect=%s", frame.Width(),
-		frame.Height(), frame.Format(), tb.AVR(), sr)
+	var args = fmt.Sprintf("video_size=%dx%d:pix_fmt=%d:pixel_aspect=%s", frame.Width(), frame.Height(), frame.Format(), sr)
 
-	fr := AVRational(C.av_guess_frame_rate(src.avFmtCtx.avCtx, src.avStream, nil)).AVR()
-	if fr.Num != 0 && fr.Den != 0 {
-		args += fmt.Sprintf(":frame_rate=%s", fr)
+	if tb != nil {
+		args += fmt.Sprintf(":time_base=%s", tb.AVR())
+	}
+
+	if !fg.simpleGraph {
+		fr := AVRational(C.av_guess_frame_rate(fg.inStreams[idx].avFmtCtx.avCtx, fg.inStreams[idx].avStream, nil)).AVR()
+		if fr.Num != 0 && fr.Den != 0 {
+			args += fmt.Sprintf(":frame_rate=%s", fr)
+		}
 	}
 
 	var filterContext *C.AVFilterContext
@@ -464,8 +537,6 @@ func (fg *FilterGraph) configVideoOutput(frame *Frame, idx int, out *C.AVFilterI
 	lastFilterContext := out.filter_ctx
 	padIdx := out.pad_idx
 
-	outStream := fg.outStreams[idx]
-
 	var (
 		ret           int
 		sinkContext   *C.AVFilterContext
@@ -480,7 +551,12 @@ func (fg *FilterGraph) configVideoOutput(frame *Frame, idx int, out *C.AVFilterI
 	fg.outFilterCtxs = append(fg.outFilterCtxs, sinkContext)
 
 	/****************************** auto scale ******************************/
-	occ := outStream.CodecCtx()
+	var occ *CodecCtx
+	if fg.simpleGraph {
+		occ = fg.encCtx
+	} else {
+		occ = fg.outStreams[idx].CodecCtx()
+	}
 
 	w := occ.Width()
 	h := occ.Height()
@@ -532,8 +608,6 @@ func (fg *FilterGraph) configAudioOutput(frame *Frame, idx int, out *C.AVFilterI
 	lastFilterContext := out.filter_ctx
 	padIdx := out.pad_idx
 
-	outStream := fg.outStreams[idx]
-
 	var (
 		ret           int
 		sinkContext   *C.AVFilterContext
@@ -552,7 +626,12 @@ func (fg *FilterGraph) configAudioOutput(frame *Frame, idx int, out *C.AVFilterI
 	fg.outFilterCtxs = append(fg.outFilterCtxs, sinkContext)
 
 	/****************************** set channel_layout ******************************/
-	occ := outStream.CodecCtx()
+	var occ *CodecCtx
+	if fg.simpleGraph {
+		occ = fg.encCtx
+	} else {
+		occ = fg.outStreams[idx].CodecCtx()
+	}
 
 	if occ.Channels() > 0 && occ.ChannelLayout() == 0 {
 		occ.SetChannelLayout(int(C.av_get_default_channel_layout(C.int(occ.Channels()))))
@@ -692,7 +771,8 @@ func (fg *FilterGraph) GetFrame() ([]*Frame, error) {
 
 	fg.RequestOldest()
 
-	if !fg.outStreams[0].CodecCtx().opened {
+
+	if !fg.simpleGraph && !fg.outStreams[0].CodecCtx().opened {
 		fg.initEncoderContext(0)
 	}
 
