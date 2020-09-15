@@ -2,20 +2,22 @@ package main
 
 import (
 	"errors"
-	"flag"
+	"fmt"
 	"github.com/peace0phmind/gmf"
+	"github.com/robfig/cron/v3"
 	"io"
 	"log"
-	"runtime/debug"
 	"syscall"
-
-	//"syscall"
+	"time"
 )
 
-func fatal(err error) {
-	debug.PrintStack()
-	log.Fatal(err)
+type myJob struct {
+	CameraIndexCode string
+	Url string
+	Interval int
+	entityId cron.EntryID
 }
+
 
 func assert(i interface{}, err error) interface{} {
 	if err != nil {
@@ -35,26 +37,17 @@ func addStream(codecNameOrId interface{}, oc *gmf.FmtCtx, ist *gmf.Stream) (int,
 		log.Fatal(errors.New("unable to create codec context"))
 	}
 
-	if oc.IsGlobalHeader() {
-		cc.SetFlag(gmf.CODEC_FLAG_GLOBAL_HEADER)
-	}
-
-	if codec.IsExperimental() {
-		cc.SetStrictCompliance(gmf.FF_COMPLIANCE_EXPERIMENTAL)
-	}
-
 	if cc.Type() == gmf.AVMEDIA_TYPE_AUDIO {
 		//cc.SetSampleFmt(ist.CodecCtx().SampleFmt())
 		//cc.SetSampleRate(ist.CodecCtx().SampleRate())
-		cc.SetChannels(ist.CodecCtx().Channels())
-		cc.SelectChannelLayout()
-		cc.SelectSampleRate()
+		//cc.SetChannels(ist.CodecCtx().Channels())
+		//cc.SelectChannelLayout()
+		//cc.SelectSampleRate()
 	}
 
 	if cc.Type() == gmf.AVMEDIA_TYPE_VIDEO {
 		cc.SetDimension(1280, 720)
 		cc.SetBitRate(1000)
-		//cc.SetBitRate(5*1024*1024)
 	}
 
 	if ost = oc.NewStream(codec); ost == nil {
@@ -66,38 +59,19 @@ func addStream(codecNameOrId interface{}, oc *gmf.FmtCtx, ist *gmf.Stream) (int,
 	return ist.Index(), ost
 }
 
-func main() {
-	var (
-		src string
-		dst string
-	)
-
-	log.SetFlags(log.Lshortfile)
-	gmf.LogSetLevel(gmf.AV_LOG_DEBUG)
-
-	flag.StringVar(&src, "src", "rtsp://admin:Zyx123456@192.168.1.11", "source file")
-	//flag.StringVar(&src, "src", "bbb.mp4", "source file")
-	//flag.StringVar(&dst, "dst", "http://121.36.218.177:9081/uVMChBVGg1", "destination file")
-	//flag.StringVar(&dst, "dst", "test.mpeg", "destination file")
-	flag.StringVar(&dst, "dst", "test%3d.jpeg", "destination file")
-	flag.Parse()
-
-	if len(src) == 0 || dst == "" {
-		log.Fatal("at least one source and destination required, e.g.\n./watermark -src=bbb.mp4 -src=test.png -dst=overlay.mp4")
-	}
+func (job *myJob) Run() {
+	log.Printf("Run Job %s, url: %s", job.CameraIndexCode, job.Url)
 
 	inputOptionsDict := gmf.NewDict([]gmf.Pair{{Key: "rtsp_transport", Val: "tcp"}, {Key: "stimeout", Val: "10000000"}})
 	inputOption := &gmf.Option{Key: "input_options", Val: inputOptionsDict}
-	inputCtx, err := gmf.NewInputCtxWithOption(src, inputOption)
-	//inputCtx, err := gmf.NewInputCtx(src)
+	inputCtx, err := gmf.NewInputCtxWithOption(job.Url, inputOption)
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer inputCtx.Free()
 	inputCtx.Dump()
 
-	//outputCtx, err := gmf.NewOutputCtxWithFormatName(dst, "mpegts")
-	outputCtx, err := gmf.NewOutputCtx(dst)
+	outputCtx, err := gmf.NewOutputCtx(fmt.Sprintf("%s_%d.jpeg", job.CameraIndexCode, time.Now().Unix()))
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -105,20 +79,13 @@ func main() {
 	outputCtx.Dump()
 
 	bestVideoStream := assert(inputCtx.GetBestStream(gmf.AVMEDIA_TYPE_VIDEO)).(*gmf.Stream)
+	_, outVideoStream := addStream("mjpeg", outputCtx, bestVideoStream)
 
-	//_, outVideoStream := addStream("mpeg1video", outputCtx, bestVideoStream)
-	_, outVideoStream := addStream(assert(outputCtx.GuessEncodeCodecId(bestVideoStream.Type())), outputCtx, bestVideoStream)
-
-	fg, err := gmf.NewVideoGraph("fps=fps=1/5", []*gmf.Stream{bestVideoStream}, []*gmf.Stream{outVideoStream}, nil)
-	defer fg.Release()
-	fg.Dump()
+	videoFg, err := gmf.NewVideoGraph("select='eq(pict_type\\,I)'", []*gmf.Stream{bestVideoStream}, []*gmf.Stream{outVideoStream}, nil)
+	defer videoFg.Release()
 
 	if err != nil {
 		log.Fatalf("%s\n", err)
-	}
-
-	if err := outputCtx.WriteHeader(); err != nil {
-		log.Fatalf("error writing header - %s\n", err)
 	}
 
 	init := false
@@ -130,17 +97,21 @@ func main() {
 		pkt   *gmf.Packet
 		ist   *gmf.Stream
 		ost   *gmf.Stream
+		finished bool
 	)
 
-	for {
+	finished = false
+
+	for !finished {
 		pkt, err = inputCtx.GetNextPacket()
 		if err != nil && err != io.EOF {
 			log.Fatalf("error getting next packet - %s", err)
 		} else if err != nil && pkt == nil {
 			log.Printf("EOF input, closing\n")
-			fg.RequestOldest()
-			fg.Close(0)
-			break
+			videoFg.RequestOldest()
+			videoFg.Close(0)
+
+			continue
 		}
 
 		ist, err = inputCtx.GetStream(pkt.StreamIndex())
@@ -148,13 +119,15 @@ func main() {
 			log.Fatalf("%s\n", err)
 		}
 
-		if !ist.IsVideo() {
+		var fg *gmf.FilterGraph
+		if ist.IsVideo() {
+			fg = videoFg
+		} else {
 			continue
 		}
 
 		frame, ret = ist.CodecCtx().Decode2(pkt)
 		if ret < 0 && gmf.AvErrno(ret) == syscall.EAGAIN {
-			log.Printf("decode err")
 			continue
 		} else if ret == gmf.AVERROR_EOF {
 			log.Fatalf("EOF in Decode2, handle it\n")
@@ -162,14 +135,16 @@ func main() {
 			log.Fatalf("Unexpected error - %s\n", gmf.AvError(ret))
 		}
 
-		//frame.SetPts(ist.Pts)
-		//ist.Pts++
-
 		if frame != nil && !init {
 			if err := fg.AddFrame(frame, 0, 0); err != nil {
 				log.Fatalf("%s\n", err)
 			}
 			fg.Dump()
+
+			if err := outputCtx.WriteHeader(); err != nil {
+				log.Fatalf("error writing header - %s\n", err)
+			}
+
 			init = true
 			frame.Free()
 			continue
@@ -208,6 +183,7 @@ func main() {
 				break
 			}
 
+			finished = true
 			op.Free()
 		}
 	}
@@ -216,4 +192,33 @@ func main() {
 
 	ost.CodecCtx().Free()
 	ost.Free()
+
+	log.Printf("Job finished %s, url: %s", job.CameraIndexCode, job.Url)
+}
+
+func NewJob(cameraCode string, url string, interval int) *myJob {
+	return &myJob{CameraIndexCode: cameraCode, Url: url, Interval: interval}
+}
+
+func AddJob(c *cron.Cron, j *myJob) error {
+	if id, err := c.AddJob(fmt.Sprintf("*/%d * * * * *", j.Interval), j); err != nil {
+		errors.New(fmt.Sprintf("Add job error: %v", err))
+		return err
+	} else {
+		j.entityId = id
+		return nil
+	}
+}
+
+func main() {
+	job1 := NewJob("101", "rtsp://admin:Zyx123456@192.168.1.10", 5)
+	job2 := NewJob("102", "rtsp://admin:Zyx123456@192.168.1.11", 5)
+
+	c := cron.New(cron.WithSeconds())
+	AddJob(c, job1)
+	AddJob(c, job2)
+	c.Start()
+
+	time.Sleep(4*time.Hour)
+	c.Stop()
 }
